@@ -1,5 +1,5 @@
 {
-  "name": "catalogo-service",
+  "name": "caravanas-service",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {

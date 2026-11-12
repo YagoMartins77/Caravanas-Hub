@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Caravanas Hub — Do interior para a arquibancada</title>
+  <meta name="description" content="Caravanas para futebol, Fórmula 1 e MMA saindo da Alta Paulista. Passagem com ingresso incluso.">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="container">
+      <a class="brand" href="/"><div class="logo"><i class="fas fa-bus"></i></div><span>Caravanas<b>Hub</b></span></a>
+      <div class="nav-links">
+        <a href="#como-funciona">Como funciona</a>
+        <a href="#modalidades">Modalidades</a>
+        <a href="#planos">Planos</a>
+        <a href="#regiao">Região</a>
+      </div>
+      <div class="nav-right">
+        <a class="btn btn-ghost btn-sm" href="auth.html">Entrar</a>
+        <a class="btn btn-primary btn-sm" href="auth.html?modo=cadastro">Criar conta</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="container">
+      <div>
+        <div class="pill-region"><i class="fas fa-location-dot"></i> Saídas da Alta Paulista</div>
+        <h1>Do interior para a <em>arquibancada</em>, sem dor de cabeça.</h1>
+        <p class="lead">
+          Morar longe não pode ser o motivo de você nunca ter visto seu time, seu piloto ou seu lutador ao vivo.
+          A gente leva você de van ou de ônibus, com o <strong>ingresso já incluso</strong> na passagem.
+        </p>
+        <div class="cta">
+          <a class="btn btn-primary btn-lg" href="auth.html?modo=cadastro"><i class="fas fa-ticket"></i> Criar conta grátis</a>
+          <a class="btn btn-ghost btn-lg" href="#planos">Conhecer o Pro</a>
+        </div>
+      </div>
+
+      <div class="hero-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;">
+          <span class="badge badge-futebol"><i class="fas fa-futbol"></i> Futebol</span>
+          <span class="muted small">Exemplo real do cálculo</span>
+        </div>
+        <h3 style="margin-bottom:.2rem;">Palmeiras x Corinthians</h3>
+        <p class="muted small" style="margin-bottom:1rem;"><i class="fas fa-bus"></i> Ônibus de 44 lugares · Marília → Allianz Parque</p>
+        <div class="row"><span>Diesel (880 km ida e volta)</span><span>R$ 1.729,75</span></div>
+        <div class="row"><span>Motorista + pedágios</span><span>R$ 860,00</span></div>
+        <div class="row"><span>Viagem por lugar (+20%)</span><span>R$ 70,63</span></div>
+        <div class="row"><span>Ingresso (preço de custo)</span><span>R$ 180,00</span></div>
+        <div class="row"><span>Sua passagem</span><span>R$ 250,63</span></div>
+      </div>
+    </div>
+  </header>
+
+  <section class="block" id="como-funciona">
+    <div class="container">
+      <div class="section-head">
+        <h2>Como funciona</h2>
+        <p>Você escolhe o evento e reserva seu lugar. A gente cuida da estrada, do motorista e do ingresso.</p>
+      </div>
+      <div class="grid-4">
+        <div class="feature">
+          <div class="step-n">PASSO 1</div>
+          <div class="ico"><i class="fas fa-user-plus"></i></div>
+          <h3>Crie sua conta</h3>
+          <p>O cadastro é grátis e leva menos de um minuto.</p>
+        </div>
+        <div class="feature">
+          <div class="step-n">PASSO 2</div>
+          <div class="ico"><i class="fas fa-magnifying-glass-location"></i></div>
+          <h3>Escolha a caravana</h3>
+          <p>Filtre por modalidade e cidade de saída. Veja o valor detalhado e as vagas restantes.</p>
+        </div>
+        <div class="feature">
+          <div class="step-n">PASSO 3</div>
+          <div class="ico"><i class="fas fa-ticket"></i></div>
+          <h3>Garanta o lugar</h3>
+          <p>A passagem já inclui o ingresso. Seu assento é reservado na hora.</p>
+        </div>
+        <div class="feature">
+          <div class="step-n">PASSO 4</div>
+          <div class="ico"><i class="fas fa-flag-checkered"></i></div>
+          <h3>Embarque e torça</h3>
+          <p>Encontre o grupo no ponto marcado. O motorista confirma seu embarque.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block alt" id="modalidades">
+    <div class="container">
+      <div class="section-head">
+        <h2>Três paixões, uma estrada</h2>
+        <p>Começamos com as modalidades que mais lotam estádio, autódromo e ginásio.</p>
+      </div>
+      <div class="grid-3">
+        <div class="mod-card mod-futebol">
+          <span class="badge badge-futebol">Futebol</span>
+          <h3>Clássicos e decisões</h3>
+          <p>Brasileirão, Paulistão e Copa do Brasil. Os jogos vêm direto da API Futebol, com data e escudos oficiais.</p>
+          <i class="fas fa-futbol big-ico"></i>
+        </div>
+        <div class="mod-card mod-f1">
+          <span class="badge badge-f1">Fórmula 1</span>
+          <h3>GP de São Paulo</h3>
+          <p>Sinta o ronco dos motores em Interlagos. A saída é de madrugada e você chega antes da largada.</p>
+          <i class="fas fa-flag-checkered big-ico"></i>
+        </div>
+        <div class="mod-card mod-mma">
+          <span class="badge badge-mma">MMA</span>
+          <h3>Noites de luta</h3>
+          <p>Eventos do UFC e outros grandes cards no Brasil, com ida e volta no mesmo dia.</p>
+          <i class="fas fa-hand-fist big-ico"></i>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="planos">
+    <div class="container">
+      <div class="section-head">
+        <h2>Free ou Pro: você escolhe</h2>
+        <p>Os dois planos viajam no mesmo banco. O Pro chega antes, paga menos e ainda concorre a brindes.</p>
+      </div>
+      <div class="plans">
+        <div class="plan">
+          <h3><i class="fas fa-user"></i> Free</h3>
+          <div class="price">R$ 0 <small>/ para sempre</small></div>
+          <ul>
+            <li><i class="fas fa-check"></i> Cadastro e compra de passagem</li>
+            <li><i class="fas fa-check"></i> Ingresso incluso na passagem</li>
+            <li><i class="fas fa-check"></i> Histórico das suas reservas</li>
+            <li><i class="fas fa-check"></i> Cancelamento antes da saída</li>
+          </ul>
+          <a class="btn btn-ghost" href="auth.html?modo=cadastro">Começar grátis</a>
+        </div>
+        <div class="plan pro">
+          <h3><i class="fas fa-crown" style="color:var(--gold)"></i> Pro</h3>
+          <div class="price">R$ 19,90 <small>/ mês</small></div>
+          <ul>
+            <li><i class="fas fa-bolt"></i> <span><strong>Acesso antecipado:</strong> veja e compre a caravana <strong>3 dias antes</strong> do Free</span></li>
+            <li><i class="fas fa-percent"></i> <span><strong>Cupons de desconto</strong> na viagem (10% de boas-vindas)</span></li>
+            <li><i class="fas fa-gift"></i> <span>Concorre a <strong>brindes</strong> em toda caravana (camisas, bonés, kits)</span></li>
+            <li><i class="fas fa-check"></i> Tudo o que o Free tem</li>
+          </ul>
+          <a class="btn btn-gold" href="auth.html?modo=cadastro">Quero ser Pro</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block alt">
+    <div class="container">
+      <div class="section-head">
+        <h2>Preço justo e transparente</h2>
+        <p>Revender ingresso com ágio é crime e a gente não faz. O ingresso sai a preço de custo. O que cobramos é a viagem.</p>
+      </div>
+      <div class="formula">
+        <div><b>custo da viagem</b> = (2 × km ÷ km por litro) × preço do diesel + motorista + pedágios</div>
+        <div style="margin-top:.6rem;"><b>sua passagem</b> = custo da viagem ÷ lugares × (1 + margem) + <b>ingresso a preço de custo</b></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="regiao">
+    <div class="container">
+      <div class="section-head">
+        <h2>Só para a Alta Paulista</h2>
+        <p>Começamos perto de casa. As caravanas saem destas cidades:</p>
+      </div>
+      <div class="cities">
+        <span>Adamantina</span><span>Bastos</span><span>Dracena</span><span>Flórida Paulista</span><span>Garça</span>
+        <span>Herculândia</span><span>Inúbia Paulista</span><span>Junqueirópolis</span><span>Lucélia</span><span>Marília</span>
+        <span>Osvaldo Cruz</span><span>Pacaembu</span><span>Parapuã</span><span>Pompeia</span><span>Quintana</span>
+        <span>Rinópolis</span><span>Tupã</span><span>Vera Cruz</span>
+      </div>
+      <div style="text-align:center;margin-top:3rem;">
+        <a class="btn btn-primary btn-lg" href="auth.html?modo=cadastro"><i class="fas fa-ticket"></i> Criar minha conta</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <span>© 2026 Caravanas Hub · Projeto acadêmico ISW055 · Prof. <a href="https://github.com/siriani" target="_blank" rel="noopener">@siriani</a></span>
+      <span>Dados de futebol: <a href="https://www.api-futebol.com.br" target="_blank" rel="noopener">API Futebol</a></span>
+    </div>
+  </footer>
+
+  <script>
+    // Quem já está logado vai direto para o app
+    fetch('/api/auth/me').then(r => { if (r.ok) document.querySelectorAll('a[href^="auth.html"]').forEach(a => { a.href = 'app.html'; }); });
+  </script>
+</body>
+</html>

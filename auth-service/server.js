@@ -60,7 +60,8 @@ app.post('/register', async (req, res) => {
   const clientIp = getClientIp(req);
 
   try {
-    const userRole = 'usuario';
+    // Todo cadastro público nasce como passageiro; outros papéis só o admin atribui
+    const userRole = 'passageiro';
     const hash = await bcrypt.hash(senha, 12);
     const [result] = await pool.query(
       'INSERT INTO usuarios (nome, email, senha_hash, role) VALUES (?, ?, ?, ?)',
@@ -137,15 +138,15 @@ app.post('/forgot-password', async (req, res) => {
     const resetLink = `${appUrl}/reset-password.html?token=${token}`;
 
     await transporter.sendMail({
-      from: '"Catálogo Tom Hanks" <yagofelipeoliveira3@gmail.com>',
+      from: '"Caravanas Hub" <yagofelipeoliveira3@gmail.com>',
       to: email,
       subject: 'Recuperação de Senha',
       html: `
         <div style="font-family: Arial, sans-serif; line-height: 1.6;">
           <h2>Redefinição de Senha</h2>
           <p>Olá, <strong>${user.nome}</strong>!</p>
-          <p>Você solicitou a recuperação da sua senha no Catálogo Tom Hanks.</p>
-          <p><a href="${resetLink}" style="background-color: #e50914; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">Redefinir Minha Senha</a></p>
+          <p>Você solicitou a recuperação da sua senha no Caravanas Hub.</p>
+          <p><a href="${resetLink}" style="background-color: #16a34a; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">Redefinir Minha Senha</a></p>
           <p>Este link expira em <strong>30 minutos</strong> e só pode ser usado uma vez.</p>
         </div>
       `
@@ -209,6 +210,46 @@ app.post('/change-password', async (req, res) => {
   } catch (err) {
     console.error('Erro no change-password:', err);
     res.status(500).json({ error: 'Erro ao alterar senha.' });
+  }
+});
+
+// ─── Papéis do negócio ───────────────────────────────────────────────────────
+// admin      → organizador: cria caravanas, eventos, veículos e atribui papéis
+// motorista  → vê só as caravanas que dirige e a lista de passageiros delas
+// passageiro → compra passagens e vê só as próprias reservas (Pro = premium=1)
+const PAPEIS_VALIDOS = ['admin', 'motorista', 'passageiro'];
+
+// Listar usuários e papéis (chamado pelo caravanas-service, já protegido por adminMiddleware)
+app.get('/users', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, nome, email, role, premium FROM usuarios ORDER BY nome'
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Erro ao listar usuários:', err);
+    res.status(500).json({ error: 'Erro ao listar usuários.' });
+  }
+});
+
+// Alterar papel de um usuário (chamado pelo caravanas-service, já protegido por adminMiddleware)
+app.put('/users/:id/role', async (req, res) => {
+  const { role, admin_id } = req.body;
+  const alvoId = Number(req.params.id);
+  if (!PAPEIS_VALIDOS.includes(role)) {
+    return res.status(400).json({ error: `Papel inválido. Use: ${PAPEIS_VALIDOS.join(', ')}.` });
+  }
+  if (Number(admin_id) === alvoId && role !== 'admin') {
+    return res.status(400).json({ error: 'Você não pode remover o próprio papel de admin.' });
+  }
+  try {
+    const [result] = await pool.query('UPDATE usuarios SET role = ? WHERE id = ?', [role, alvoId]);
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    await registrarAuditoria(admin_id, 'papel_alterado', `Usuário #${alvoId} agora é ${role}`, getClientIp(req));
+    res.json({ id: alvoId, role });
+  } catch (err) {
+    console.error('Erro ao alterar papel:', err);
+    res.status(500).json({ error: 'Erro ao alterar papel.' });
   }
 });
 

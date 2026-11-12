@@ -8,9 +8,11 @@ networks:
         - subnet: 10.99.0.0/16
 
 services:
-  catalogo-service:
-    build: ./catalogo-service
-    container_name: catalogo-tom-hanks-yago
+  caravanas-service:
+    build:
+      context: .
+      dockerfile: caravanas-service/Dockerfile
+    container_name: caravanas-hub-yago
     restart: always
     ports:
       - "8228:3000"
@@ -18,7 +20,8 @@ services:
       - PORT=3000
       - AUTH_SERVICE_URL=http://auth-service-yago:3001
       - LOG_SERVICE_URL=http://log-service-yago:3002
-      - TMDB_API_KEY=${TMDB_API_KEY}
+      - API_FUTEBOL_KEY=${API_FUTEBOL_KEY}
+      - ANTECEDENCIA_PRO_DIAS=${ANTECEDENCIA_PRO_DIAS:-3}
       - DB_HOST=35.226.64.52
       - DB_USER=IAC_2026_02_yago_martins
       - DB_PASSWORD=${DB_PASSWORD}
