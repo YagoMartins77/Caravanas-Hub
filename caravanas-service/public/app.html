@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Caravana's Hub</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="container">
+      <a class="brand" data-view="caravanas"><div class="logo"><i class="fas fa-bus"></i></div><span>Caravana's <b>Hub</b></span></a>
+      <div class="nav-links" id="navLinks">
+        <a data-view="caravanas" class="active">Caravanas</a>
+        <a data-view="passagens">Minhas passagens</a>
+        <a data-view="pro">Pro &amp; cupons</a>
+        <a data-view="organizador" class="hidden" id="linkOrganizador">Minhas caravanas</a>
+        <a data-view="admin" class="hidden" id="linkAdmin">Admin</a>
+      </div>
+      <div class="nav-right">
+        <span id="badgePlano"></span>
+        <span id="badgePapel"></span>
+        <label class="avatar" id="avatarBox" title="Trocar foto">
+          <span id="avatarInicial">?</span>
+          <input type="file" id="avatarInput" accept="image/*" hidden>
+        </label>
+        <button class="btn btn-ghost btn-sm" id="btnSair"><i class="fas fa-right-from-bracket"></i></button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="app-main container">
+    <!-- ═══ CARAVANAS ═══ -->
+    <section id="view-caravanas" class="view">
+      <div class="page-head">
+        <div>
+          <h1>Próximas caravanas</h1>
+          <p class="muted">Saídas da Alta Paulista com o ingresso incluso na passagem.</p>
+        </div>
+        <div class="filters" id="filtrosTipo">
+          <button class="chip active" data-tipo="">Todas</button>
+          <button class="chip" data-tipo="futebol"><i class="fas fa-futbol"></i> Futebol</button>
+          <button class="chip" data-tipo="corrida"><i class="fas fa-flag-checkered"></i> F1</button>
+          <button class="chip" data-tipo="mma"><i class="fas fa-hand-fist"></i> MMA</button>
+        </div>
+      </div>
+      <div style="max-width:260px;margin-bottom:1.2rem;">
+        <select id="filtroCidade"><option value="">Todas as cidades de saída</option></select>
+      </div>
+      <div id="bannerPro"></div>
+      <div id="listaCaravanas" class="cards"></div>
+    </section>
+
+    <!-- ═══ PASSAGENS ═══ -->
+    <section id="view-passagens" class="view hidden">
+      <div class="page-head"><div><h1>Minhas passagens</h1><p class="muted">Só você vê as suas reservas.</p></div></div>
+      <div id="listaPassagens"></div>
+    </section>
+
+    <!-- ═══ PRO & CUPONS & BRINDES ═══ -->
+    <section id="view-pro" class="view hidden">
+      <div class="page-head"><div><h1>Plano Pro</h1><p class="muted">Acesso antecipado, cupons e sorteios de brindes.</p></div></div>
+      <div id="boxPro"></div>
+      <h2 style="margin:2rem 0 1rem;">Meus cupons</h2>
+      <div id="listaCupons"></div>
+      <h2 style="margin:2rem 0 1rem;">Brindes &amp; sorteios</h2>
+      <div id="listaBrindes"></div>
+    </section>
+
+    <!-- ═══ ORGANIZADOR ═══ -->
+    <section id="view-organizador" class="view hidden">
+      <div class="page-head">
+        <div><h1>Minhas caravanas (Organizador)</h1><p class="muted">Gerencie suas vans/ônibus, fotos e lista de passageiros.</p></div>
+        <button class="btn btn-primary" data-action="nova-caravana"><i class="fas fa-plus"></i> Nova caravana</button>
+      </div>
+      <div id="listaOrganizador" class="cards"></div>
+    </section>
+
+    <!-- ═══ ADMIN ═══ -->
+    <section id="view-admin" class="view hidden">
+      <div class="page-head"><div><h1>Painel do administrador</h1></div></div>
+      <div class="tabs" id="adminTabs">
+        <button class="tab active" data-tab="a-caravanas">Caravanas</button>
+        <button class="tab" data-tab="a-eventos">Eventos</button>
+        <button class="tab" data-tab="a-usuarios">Usuários &amp; cupons</button>
+        <button class="tab" data-tab="a-reservas">Reservas</button>
+        <button class="tab" data-tab="a-logs">Auditoria</button>
+      </div>
+      <div id="a-caravanas" class="atab"></div>
+      <div id="a-eventos" class="atab hidden"></div>
+      <div id="a-usuarios" class="atab hidden"></div>
+      <div id="a-reservas" class="atab hidden"></div>
+      <div id="a-logs" class="atab hidden"></div>
+    </section>
+  </main>
+
+  <div class="modal" id="modal"><div class="modal-box" id="modalBox"></div></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

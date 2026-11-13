@@ -3,120 +3,105 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Autenticação - Catálogo Tom Hanks</title>
+  <title>Entrar — Caravana's Hub</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="auth-page">
   <div class="auth-card">
+    <a class="brand" href="/"><div class="logo"><i class="fas fa-bus"></i></div><span>Caravana's <b>Hub</b></span></a>
     <h2 id="formTitle">Entrar</h2>
-    
+
     <form id="authForm">
-      <input type="text" id="nome" placeholder="Seu Nome" style="display: none;">
-      <input type="email" id="email" placeholder="E-mail" required>
-      <input type="password" id="senha" placeholder="Senha" required>
-      <button type="submit" id="submitBtn">Entrar</button>
+      <div class="field" id="campoNome" style="display:none;">
+        <label for="nome">Nome</label>
+        <input type="text" id="nome" placeholder="Seu nome">
+      </div>
+      <div class="field" id="campoTime" style="display:none;">
+        <label for="time_torcida">Time / atleta que você torce (opcional)</label>
+        <input type="text" id="time_torcida" placeholder="Ex.: Palmeiras, Ferrari, Charles do Bronx">
+      </div>
+      <div class="field">
+        <label for="email">E-mail</label>
+        <input type="email" id="email" placeholder="voce@email.com" required>
+      </div>
+      <div class="field" id="campoSenha">
+        <label for="senha">Senha</label>
+        <input type="password" id="senha" placeholder="Mínimo 6 caracteres" required minlength="6">
+      </div>
+      <button type="submit" id="submitBtn" class="btn btn-primary" style="width:100%;">Entrar</button>
     </form>
-    
-    <p id="toggleText">
-      Não tem uma conta? <a onclick="setMode('cadastro')">Cadastre-se</a>
-    </p>
-    <p id="forgotText">
-      <a onclick="setMode('esqueci')">Esqueci minha senha</a>
-    </p>
-    
-    <p id="msgErro" style="margin-top: 15px; font-weight: bold; text-align: center;"></p>
+
+    <p id="toggleText"></p>
+    <p id="forgotText"><a data-modo="esqueci">Esqueci minha senha</a></p>
+    <div id="msg" class="msg"></div>
   </div>
 
   <script>
-    let currentMode = 'login'; // login, cadastro, esqueci
+    let modo = 'login';
+    const $ = (id) => document.getElementById(id);
 
-    function setMode(mode) {
-      currentMode = mode;
-      const nomeInput = document.getElementById('nome');
-      const senhaInput = document.getElementById('senha');
-      const title = document.getElementById('formTitle');
-      const btn = document.getElementById('submitBtn');
-      const toggle = document.getElementById('toggleText');
-      const forgot = document.getElementById('forgotText');
-      const msg = document.getElementById('msgErro');
-      msg.textContent = '';
-
-      if (mode === 'login') {
-        nomeInput.style.display = 'none';
-        nomeInput.required = false;
-        senhaInput.style.display = 'block';
-        senhaInput.required = true;
-        title.textContent = 'Entrar';
-        btn.textContent = 'Entrar';
-        toggle.innerHTML = 'Não tem uma conta? <a onclick="setMode(\'cadastro\')">Cadastre-se</a>';
-        forgot.style.display = 'block';
-      } else if (mode === 'cadastro') {
-        nomeInput.style.display = 'block';
-        nomeInput.required = true;
-        senhaInput.style.display = 'block';
-        senhaInput.required = true;
-        title.textContent = 'Cadastrar';
-        btn.textContent = 'Cadastrar';
-        toggle.innerHTML = 'Já tem uma conta? <a onclick="setMode(\'login\')">Faça Login</a>';
-        forgot.style.display = 'none';
-      } else if (mode === 'esqueci') {
-        nomeInput.style.display = 'none';
-        nomeInput.required = false;
-        senhaInput.style.display = 'none';
-        senhaInput.required = false;
-        title.textContent = 'Recuperar Senha';
-        btn.textContent = 'Enviar Link por E-mail';
-        toggle.innerHTML = 'Lembrou a senha? <a onclick="setMode(\'login\')">Voltar ao Login</a>';
-        forgot.style.display = 'none';
-      }
+    function setModo(m) {
+      modo = m;
+      $('msg').textContent = '';
+      $('campoNome').style.display = m === 'cadastro' ? 'block' : 'none';
+      $('campoTime').style.display = m === 'cadastro' ? 'block' : 'none';
+      $('nome').required = m === 'cadastro';
+      $('campoSenha').style.display = m === 'esqueci' ? 'none' : 'block';
+      $('senha').required = m !== 'esqueci';
+      $('forgotText').style.display = m === 'login' ? 'block' : 'none';
+      const textos = {
+        login:    ['Entrar', 'Entrar', 'Não tem conta? <a data-modo="cadastro">Cadastre-se grátis</a>'],
+        cadastro: ['Criar conta', 'Criar conta', 'Já tem conta? <a data-modo="login">Entrar</a>'],
+        esqueci:  ['Recuperar senha', 'Enviar link por e-mail', 'Lembrou? <a data-modo="login">Voltar ao login</a>']
+      }[m];
+      $('formTitle').textContent = textos[0];
+      $('submitBtn').textContent = textos[1];
+      $('toggleText').innerHTML = textos[2];
     }
 
-    document.getElementById('authForm').addEventListener('submit', async (e) => {
+    document.addEventListener('click', (e) => {
+      const m = e.target.closest('[data-modo]');
+      if (m) setModo(m.dataset.modo);
+    });
+
+    $('authForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const nome = document.getElementById('nome').value;
-      const email = document.getElementById('email').value;
-      const senha = document.getElementById('senha').value;
-      const msg = document.getElementById('msgErro');
-
-      let endpoint = '/api/auth/login';
-      let body = { email, senha };
-
-      if (currentMode === 'cadastro') {
-        endpoint = '/api/auth/register';
-        body = { nome, email, senha };
-      } else if (currentMode === 'esqueci') {
-        endpoint = '/api/auth/forgot-password';
-        body = { email };
-      }
-
+      const email = $('email').value.trim();
+      const senha = $('senha').value;
+      const nome = $('nome').value.trim();
+      const time_torcida = $('time_torcida').value.trim();
+      const rotas = {
+        login:    ['/api/auth/login', { email, senha }],
+        cadastro: ['/api/auth/register', { nome, email, senha, time_torcida }],
+        esqueci:  ['/api/auth/forgot-password', { email }]
+      };
+      const [url, body] = rotas[modo];
+      const msg = $('msg');
+      $('submitBtn').disabled = true;
       try {
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
-        const data = await res.json();
-
-        if (res.ok) {
-          if (currentMode === 'login') {
-            window.location.href = 'index.html';
-          } else if (currentMode === 'cadastro') {
-            msg.style.color = 'green';
-            msg.textContent = 'Cadastrado com sucesso!';
-            setTimeout(() => setMode('login'), 1500);
-          } else {
-            msg.style.color = 'green';
-            msg.textContent = data.message || 'Verifique seu e-mail no Mailtrap.';
-          }
-        } else {
-          msg.style.color = '#e50914';
-          msg.textContent = data.error || 'Erro na requisição.';
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Erro na requisição.');
+        if (modo === 'login') return (window.location.href = 'app.html');
+        if (modo === 'cadastro') {
+          // Já entra direto depois de cadastrar
+          const login = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, senha }) });
+          if (login.ok) return (window.location.href = 'app.html');
+          msg.className = 'msg ok'; msg.textContent = 'Conta criada! Faça login.'; setModo('login');
+          return;
         }
+        msg.className = 'msg ok';
+        msg.textContent = data.message || 'Se o e-mail existir, enviamos o link.';
       } catch (err) {
-        msg.style.color = '#e50914';
-        msg.textContent = 'Erro de conexão com o servidor.';
+        msg.className = 'msg err';
+        msg.textContent = err.message;
+      } finally {
+        $('submitBtn').disabled = false;
       }
     });
+
+    setModo(new URLSearchParams(location.search).get('modo') === 'cadastro' ? 'cadastro' : 'login');
   </script>
 </body>
 </html>

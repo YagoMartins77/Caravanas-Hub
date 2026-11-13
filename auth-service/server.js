@@ -52,7 +52,7 @@ const transporter = nodemailer.createTransport({
 
 // Cadastro (Blindado contra Mass Assignment)
 app.post('/register', async (req, res) => {
-  const { nome, email, senha } = req.body;
+  const { nome, email, senha, time_torcida } = req.body;
   if (!nome || !email || !senha) {
     return res.status(400).json({ error: 'Campos obrigatórios ausentes.' });
   }
@@ -60,17 +60,18 @@ app.post('/register', async (req, res) => {
   const clientIp = getClientIp(req);
 
   try {
-    // Todo cadastro público nasce como passageiro; outros papéis só o admin atribui
-    const userRole = 'passageiro';
+    // Todo cadastro público nasce como passageiro no plano Free; outros papéis só o admin atribui
+    const papel = 'passageiro';
     const hash = await bcrypt.hash(senha, 12);
     const [result] = await pool.query(
-      'INSERT INTO usuarios (nome, email, senha_hash, role) VALUES (?, ?, ?, ?)',
-      [nome.trim(), email.trim().toLowerCase(), hash, userRole]
+      'INSERT INTO contas (nome, email, senha_hash, papel, time_torcida) VALUES (?, ?, ?, ?, ?)',
+      [nome.trim(), email.trim().toLowerCase(), hash, papel, time_torcida ? String(time_torcida).trim().slice(0, 100) : null]
     );
+    await pool.query('INSERT IGNORE INTO usuarios_free (conta_id) VALUES (?)', [result.insertId]);
 
     await registrarAuditoria(result.insertId, 'cadastro_sucesso', `Novo usuário cadastrado: ${email}`, clientIp);
 
-    res.status(201).json({ id: result.insertId, nome, email, role: userRole });
+    res.status(201).json({ id: result.insertId, nome, email, role: papel, papel });
   } catch (err) {
     console.error('Erro no register:', err);
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'E-mail já cadastrado.' });
@@ -88,7 +89,7 @@ app.post('/login', async (req, res) => {
   const clientIp = getClientIp(req);
 
   try {
-    const [rows] = await pool.query('SELECT * FROM usuarios WHERE email = ?', [email.trim().toLowerCase()]);
+    const [rows] = await pool.query('SELECT * FROM contas WHERE email = ?', [email.trim().toLowerCase()]);
     if (rows.length === 0) {
       // FALHA: Usuário não encontrado
       await registrarAuditoria('anonimo', 'login_falha', `E-mail inexistente: ${email}`, clientIp);
@@ -104,8 +105,8 @@ app.post('/login', async (req, res) => {
     }
 
     // SUCESSO!
-    await registrarAuditoria(user.id, 'login_sucesso', `Sessão iniciada pelo email ${user.email} (${user.role})`, clientIp);
-    res.json({ id: user.id, nome: user.nome, email: user.email, role: user.role });
+    await registrarAuditoria(user.id, 'login_sucesso', `Sessão iniciada pelo email ${user.email} (${user.papel})`, clientIp);
+    res.json({ id: user.id, nome: user.nome, email: user.email, role: user.papel, papel: user.papel, time_torcida: user.time_torcida });
   } catch (err) {
     console.error('Erro no login:', err);
     res.status(500).json({ error: 'Erro no login.' });
@@ -120,7 +121,7 @@ app.post('/forgot-password', async (req, res) => {
   const clientIp = getClientIp(req);
 
   try {
-    const [users] = await pool.query('SELECT id, nome FROM usuarios WHERE email = ?', [email.trim().toLowerCase()]);
+    const [users] = await pool.query('SELECT id, nome FROM contas WHERE email = ?', [email.trim().toLowerCase()]);
     if (users.length === 0) {
       return res.json({ message: 'Se o e-mail existir, o link de recuperação foi enviado.' });
     }
@@ -184,7 +185,7 @@ app.post('/reset-password', async (req, res) => {
     const resetRecord = rows[0];
     const hash = await bcrypt.hash(novaSenha, 12);
 
-    await pool.query('UPDATE usuarios SET senha_hash = ? WHERE id = ?', [hash, resetRecord.usuario_id]);
+    await pool.query('UPDATE contas SET senha_hash = ? WHERE id = ?', [hash, resetRecord.usuario_id]);
     await pool.query('UPDATE reset_tokens SET usado = TRUE WHERE id = ?', [resetRecord.id]);
 
     await registrarAuditoria(resetRecord.usuario_id, 'senha_redefinida', 'Usuário redefiniu a senha com sucesso via token', clientIp);
@@ -196,16 +197,16 @@ app.post('/reset-password', async (req, res) => {
   }
 });
 
-// Alterar Senha (chamado internamente pelo catalogo-service com usuario_id da sessão)
+// Alterar Senha (chamado internamente pelo caravanas-service com usuario_id da sessão)
 app.post('/change-password', async (req, res) => {
-  // SEGURANÇA: usuario_id vem do catalogo-service (da sessão), não do body do usuário
+  // SEGURANÇA: usuario_id vem do caravanas-service (da sessão), não do body do usuário
   const { usuario_id, novaSenha } = req.body;
   if (!usuario_id || !novaSenha || novaSenha.length < 6) {
     return res.status(400).json({ error: 'Dados inválidos.' });
   }
   try {
     const hash = await bcrypt.hash(novaSenha, 12);
-    await pool.query('UPDATE usuarios SET senha_hash = ? WHERE id = ?', [hash, usuario_id]);
+    await pool.query('UPDATE contas SET senha_hash = ? WHERE id = ?', [hash, usuario_id]);
     res.json({ message: 'Senha alterada com sucesso!' });
   } catch (err) {
     console.error('Erro no change-password:', err);
@@ -214,17 +215,21 @@ app.post('/change-password', async (req, res) => {
 });
 
 // ─── Papéis do negócio ───────────────────────────────────────────────────────
-// admin      → organizador: cria caravanas, eventos, veículos e atribui papéis
-// motorista  → vê só as caravanas que dirige e a lista de passageiros delas
-// passageiro → compra passagens e vê só as próprias reservas (Pro = premium=1)
-const PAPEIS_VALIDOS = ['admin', 'motorista', 'passageiro'];
+// admin       → gerencia tudo (inclusive corridas de F1), cria cupons e sorteia brindes
+// organizador → responsável pela van/ônibus, cria e gerencia suas próprias caravanas
+// passageiro  → compra passagens e vê só as próprias reservas (Pro = usuarios_premium ativo)
+const PAPEIS_VALIDOS = ['admin', 'organizador', 'passageiro'];
 
 // Listar usuários e papéis (chamado pelo caravanas-service, já protegido por adminMiddleware)
 app.get('/users', async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      'SELECT id, nome, email, role, premium FROM usuarios ORDER BY nome'
-    );
+    const [rows] = await pool.query(`
+      SELECT c.id, c.nome, c.email, c.papel AS role, c.papel, c.time_torcida,
+             (CASE WHEN up.conta_id IS NOT NULL AND up.ativo = 1 THEN 1 ELSE 0 END) AS premium
+        FROM contas c
+        LEFT JOIN usuarios_premium up ON up.conta_id = c.id
+       ORDER BY c.nome
+    `);
     res.json(rows);
   } catch (err) {
     console.error('Erro ao listar usuários:', err);
@@ -243,10 +248,13 @@ app.put('/users/:id/role', async (req, res) => {
     return res.status(400).json({ error: 'Você não pode remover o próprio papel de admin.' });
   }
   try {
-    const [result] = await pool.query('UPDATE usuarios SET role = ? WHERE id = ?', [role, alvoId]);
+    const [result] = await pool.query('UPDATE contas SET papel = ? WHERE id = ?', [role, alvoId]);
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Usuário não encontrado.' });
-    await registrarAuditoria(admin_id, 'papel_alterado', `Usuário #${alvoId} agora é ${role}`, getClientIp(req));
-    res.json({ id: alvoId, role });
+    if (role === 'organizador' || role === 'admin') {
+      await pool.query('INSERT IGNORE INTO organizadores (conta_id) VALUES (?)', [alvoId]);
+    }
+    await registrarAuditoria(admin_id, 'papel_alterado', `Conta #${alvoId} agora tem papel ${role}`, getClientIp(req));
+    res.json({ id: alvoId, role, papel: role });
   } catch (err) {
     console.error('Erro ao alterar papel:', err);
     res.status(500).json({ error: 'Erro ao alterar papel.' });
