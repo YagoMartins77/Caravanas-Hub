@@ -308,46 +308,37 @@ function mostrarStep1App() {
   const s1 = $('#stepEsporteApp');
   const s2 = $('#stepTimeApp');
   if (!s1 || !s2) return;
+  s2.style.display = 'none';
+  s2.style.opacity = '0';
+  s2.className = 'anim-step';
+  s1.className = 'anim-step';
+  s1.style.position = 'relative';
+  s1.style.pointerEvents = 'auto';
   s1.style.display = 'block';
   s1.style.opacity = '1';
   s1.style.transform = 'translateX(0)';
-  s1.className = 'anim-step anim-step-active';
-  s2.style.display = 'none';
-  s2.style.opacity = '0';
 }
 
 function mostrarStep2App() {
   const s1 = $('#stepEsporteApp');
   const s2 = $('#stepTimeApp');
-  s1.className = 'anim-step slide-out-left';
-  setTimeout(() => {
-    s1.style.display = 'none';
-    s2.style.display = 'block';
-    s2.style.opacity = '0';
-    s2.style.transform = 'translateX(40px)';
-    void s2.offsetWidth;
-    s2.style.transition = 'opacity .25s ease, transform .25s ease';
-    s2.style.opacity = '1';
-    s2.style.transform = 'translateX(0)';
-  }, 200);
+  if (!s1 || !s2) return;
+  s1.className = 'anim-step';
+  s1.style.display = 'none';
+  s2.className = 'anim-step';
+  s2.style.position = 'relative';
+  s2.style.pointerEvents = 'auto';
+  s2.style.display = 'block';
+  s2.style.opacity = '0';
+  s2.style.transform = 'translateX(24px)';
+  void s2.offsetWidth;
+  s2.style.transition = 'opacity .22s ease, transform .22s ease';
+  s2.style.opacity = '1';
+  s2.style.transform = 'translateX(0)';
 }
 
 $('#btnVoltarEsporteApp')?.addEventListener('click', () => {
-  const s1 = $('#stepEsporteApp');
-  const s2 = $('#stepTimeApp');
-  s2.style.transition = 'opacity .2s ease, transform .2s ease';
-  s2.style.opacity = '0';
-  s2.style.transform = 'translateX(40px)';
-  setTimeout(() => {
-    s2.style.display = 'none';
-    s1.style.display = 'block';
-    s1.style.opacity = '0';
-    s1.style.transform = 'translateX(-40px)';
-    void s1.offsetWidth;
-    s1.style.transition = 'opacity .25s ease, transform .25s ease';
-    s1.style.opacity = '1';
-    s1.style.transform = 'translateX(0)';
-  }, 200);
+  mostrarStep1App();
 });
 
 $('#btnAppFutebol')?.addEventListener('click', mostrarStep2App);
@@ -822,10 +813,19 @@ async function importarPartida(id, botao) {
 
 async function adminUsuarios() {
   const box = $('#a-usuarios');
+  box.innerHTML = '<p class="muted">Carregando usuários e cupons...</p>';
   try {
-    const usuarios = await api('/api/admin/usuarios');
+    const [usuarios, cupons] = await Promise.all([
+      api('/api/admin/usuarios'),
+      api('/api/admin/cupons').catch(() => [])
+    ]);
+    estado.cache.usuarios = usuarios;
+
     box.innerHTML = `
-      <p class="muted small" style="margin-bottom:1rem;">Novos cadastros entram como <strong>passageiro</strong>. Promova organizadores e administradores aqui. Use <strong>1-Click Pro</strong> para ativar ou desativar o plano Pro instantaneamente.</p>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
+        <p class="muted small" style="margin:0;">Gerencie papéis, ative/desative o plano <strong>Pro</strong> com 1 clique e emita <strong>cupons de desconto</strong>.</p>
+        <button class="btn btn-gold" data-action="abrir-modal-cupom"><i class="fas fa-ticket"></i> + Criar Cupom de Desconto</button>
+      </div>
       <div class="table-wrap"><table>
         <tr><th>#</th><th>Nome</th><th>E-mail</th><th>Time / Torcida</th><th>Plano</th><th>Papel</th><th style="text-align:right;">Ações</th></tr>
         ${usuarios.map(u => `<tr>
@@ -834,30 +834,64 @@ async function adminUsuarios() {
           <td>${u.premium == 1 ? '<span class="badge badge-pro"><i class="fas fa-crown"></i> Pro</span>' : '<span class="badge">Free</span>'}</td>
           <td><select data-papel="${u.id}" style="width:auto;">${['passageiro', 'organizador', 'admin'].map(p => `<option ${p === (u.papel || u.role) ? 'selected' : ''}>${p}</option>`).join('')}</select></td>
           <td style="text-align:right;white-space:nowrap;">
+            <button class="btn btn-gold btn-sm" data-action="novo-cupom" data-id="${u.id}" data-nome="${esc(u.nome)}" title="Emitir cupom para este usuário"><i class="fas fa-percent"></i> Cupom</button>
             ${u.premium == 1
-              ? `<button class="btn btn-gold btn-sm" data-action="novo-cupom" data-id="${u.id}" data-nome="${esc(u.nome)}"><i class="fas fa-percent"></i> Cupom</button>
-                 <button class="btn btn-ghost btn-sm" data-action="remover-pro" data-id="${u.id}" style="color:#f87171;" title="Desativar Pro"><i class="fas fa-ban"></i> Remover Pro</button>`
+              ? `<button class="btn btn-ghost btn-sm" data-action="remover-pro" data-id="${u.id}" style="color:#f87171;" title="Desativar Pro"><i class="fas fa-ban"></i> Remover Pro</button>`
               : `<button class="btn btn-primary btn-sm" data-action="promover-pro" data-id="${u.id}"><i class="fas fa-bolt"></i> 1-Click Pro</button>`}
           </td>
         </tr>`).join('')}
+      </table></div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:2rem 0 .8rem;flex-wrap:wrap;gap:.8rem;">
+        <h3 style="margin:0;"><i class="fas fa-ticket" style="color:var(--gold)"></i> Cupons de Desconto Emitidos (${cupons.length})</h3>
+      </div>
+      <div class="table-wrap"><table>
+        <tr><th>Código</th><th>Desconto</th><th>Destinatário</th><th>Descrição</th><th>Validade</th><th>Status</th><th></th></tr>
+        ${cupons.length ? cupons.map(c => `<tr>
+          <td><code style="color:var(--gold);font-weight:800;font-size:.95rem;">${esc(c.codigo)}</code></td>
+          <td><strong>${Number(c.desconto_percentual)}%</strong></td>
+          <td>${esc(c.usuario_nome)}<br><span class="muted small">${esc(c.usuario_email)}</span></td>
+          <td class="small">${esc(c.descricao || '-')}</td>
+          <td class="small">${dataBR(c.validade)}</td>
+          <td>${c.usado ? '<span class="badge">Usado</span>' : '<span class="badge badge-ok">Disponível</span>'}</td>
+          <td style="text-align:right;">
+            <button class="btn btn-danger btn-sm" data-action="remover-cupom" data-id="${c.id}" title="Excluir cupom"><i class="fas fa-trash"></i></button>
+          </td>
+        </tr>`).join('') : '<tr><td colspan="7" class="muted" style="text-align:center;padding:1.5rem;">Nenhum cupom de desconto emitido ainda. Clique em "+ Criar Cupom de Desconto" acima.</td></tr>'}
       </table></div>`;
   } catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
 }
 
-function formCupom(id, nome) {
+async function formCupom(id = null, nome = '') {
+  let usuarios = estado.cache.usuarios || [];
+  if (!usuarios.length) {
+    try { usuarios = await api('/api/admin/usuarios'); estado.cache.usuarios = usuarios; } catch {}
+  }
   abrirModal(`
-    <h2>Cupom para ${esc(nome)}</h2>
-    <form id="formCupom">
-      <div class="field"><label>Desconto na viagem (%)</label><input type="number" name="desconto_percentual" min="1" max="50" value="10" required></div>
-      <div class="field"><label>Validade (dias)</label><input type="number" name="dias_validade" min="1" max="365" value="60"></div>
-      <div class="field"><label>Descrição</label><input name="descricao" value="Cupom do administrador" maxlength="255"></div>
-      <button class="btn btn-gold" type="submit">Gerar cupom</button>
+    <h2><i class="fas fa-ticket" style="color:var(--gold)"></i> ${id ? `Emitir cupom para ${esc(nome)}` : 'Criar Cupom de Desconto'}</h2>
+    <form id="formCupom" class="form-grid">
+      <div class="field full">
+        <label>Destinatário</label>
+        <select name="usuario_id" required>
+          ${!id ? '<option value="todos_pro">Todos os assinantes Pro ativos</option>' : ''}
+          ${usuarios.map(u => `<option value="${u.id}" ${String(u.id) === String(id) ? 'selected' : ''}>#${u.id} · ${esc(u.nome)} (${esc(u.email)}) ${u.premium == 1 ? '[Pro]' : '[Ativar Pro + Cupom]'}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Desconto na viagem (%)</label><input type="number" name="desconto_percentual" min="1" max="50" value="15" required></div>
+      <div class="field"><label>Validade (dias)</label><input type="number" name="dias_validade" min="1" max="365" value="60" required></div>
+      <div class="field full"><label>Código personalizado (opcional — deixe em branco para gerar automático)</label><input name="codigo" placeholder="Ex.: PRO-BEMVINDO" maxlength="36" style="text-transform:uppercase;"></div>
+      <div class="field full"><label>Descrição / motivo do cupom</label><input name="descricao" value="Cupom exclusivo de desconto na caravana" maxlength="255" required></div>
+      <div class="full"><button class="btn btn-gold" type="submit" style="width:100%;"><i class="fas fa-gift"></i> Emitir Cupom</button></div>
     </form>`);
   $('#formCupom').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     try {
-      const c = await api('/api/admin/cupons', { method: 'POST', body: { usuario_id: id, ...Object.fromEntries(new FormData(ev.target)) } });
-      toast(`Cupom ${c.codigo} criado!`); fecharModal();
+      const dados = Object.fromEntries(new FormData(ev.target));
+      if (!dados.codigo || !dados.codigo.trim()) delete dados.codigo;
+      const c = await api('/api/admin/cupons', { method: 'POST', body: dados });
+      toast(c.lote ? `${c.quantidade} cupons (${c.desconto_percentual}%) emitidos!` : `Cupom ${c.codigo} (${c.desconto_percentual}%) criado com sucesso!`);
+      fecharModal();
+      if (!$('#view-admin').classList.contains('hidden')) adminUsuarios();
     } catch (err) { toast(err.message, 'err'); }
   });
 }
@@ -940,7 +974,13 @@ const acoes = {
   },
   'importar-futebol': importarFutebol,
   'importar-partida': (id, el) => importarPartida(id, el),
+  'abrir-modal-cupom': () => formCupom(null, ''),
   'novo-cupom': (id, el) => formCupom(id, el.dataset.nome),
+  'remover-cupom': async (id) => {
+    if (!confirm('Remover este cupom de desconto?')) return;
+    try { await api(`/api/admin/cupons/${id}`, { method: 'DELETE' }); toast('Cupom removido.'); adminUsuarios(); }
+    catch (err) { toast(err.message, 'err'); }
+  },
   'apagar-log': async (_, el) => {
     try { await api(`/api/logs/${encodeURIComponent(el.dataset.id)}`, { method: 'DELETE' }); adminLogs(); }
     catch (err) { toast(err.message, 'err'); }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Entrar — Caravana's Hub</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="style.css?v=202611132">
+  <link rel="stylesheet" href="style.css?v=202611133">
 </head>
 <body class="auth-page">
   <div class="auth-card" id="authBox">
@@ -205,48 +205,36 @@
     function mostrarStep1() {
       const s1 = $('stepEsporte');
       const s2 = $('stepTime');
+      s2.style.display = 'none';
+      s2.style.opacity = '0';
+      s2.className = 'anim-step';
+      s1.className = 'anim-step';
+      s1.style.position = 'relative';
+      s1.style.pointerEvents = 'auto';
       s1.style.display = 'block';
       s1.style.opacity = '1';
       s1.style.transform = 'translateX(0)';
-      s1.className = 'anim-step anim-step-active';
-      s2.style.display = 'none';
-      s2.style.opacity = '0';
     }
 
     function mostrarStep2() {
       const s1 = $('stepEsporte');
       const s2 = $('stepTime');
-      // Animação Card 1 desliza para esquerda e some
-      s1.className = 'anim-step slide-out-left';
-      setTimeout(() => {
-        s1.style.display = 'none';
-        s2.style.display = 'block';
-        s2.style.opacity = '0';
-        s2.style.transform = 'translateX(40px)';
-        // Força reflow
-        void s2.offsetWidth;
-        s2.style.transition = 'opacity .25s ease, transform .25s ease';
-        s2.style.opacity = '1';
-        s2.style.transform = 'translateX(0)';
-      }, 200);
+      s1.className = 'anim-step';
+      s1.style.display = 'none';
+      s2.className = 'anim-step';
+      s2.style.position = 'relative';
+      s2.style.pointerEvents = 'auto';
+      s2.style.display = 'block';
+      s2.style.opacity = '0';
+      s2.style.transform = 'translateX(24px)';
+      void s2.offsetWidth;
+      s2.style.transition = 'opacity .22s ease, transform .22s ease';
+      s2.style.opacity = '1';
+      s2.style.transform = 'translateX(0)';
     }
 
     $('btnVoltarEsporte').addEventListener('click', () => {
-      const s1 = $('stepEsporte');
-      const s2 = $('stepTime');
-      s2.style.transition = 'opacity .2s ease, transform .2s ease';
-      s2.style.opacity = '0';
-      s2.style.transform = 'translateX(40px)';
-      setTimeout(() => {
-        s2.style.display = 'none';
-        s1.style.display = 'block';
-        s1.style.opacity = '0';
-        s1.style.transform = 'translateX(-40px)';
-        void s1.offsetWidth;
-        s1.style.transition = 'opacity .25s ease, transform .25s ease';
-        s1.style.opacity = '1';
-        s1.style.transform = 'translateX(0)';
-      }, 200);
+      mostrarStep1();
     });
 
     $('btnSportFutebol').addEventListener('click', () => {

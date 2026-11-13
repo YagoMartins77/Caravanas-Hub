@@ -267,10 +267,10 @@ td .actions { display: flex; gap: .35rem; flex-wrap: wrap; }
 /* ── Cartão Animado Onboarding (Esporte e Times) ─────── */
 .onboarding-card-box {
   width: min(560px, 95%); background: var(--card); border: 1px solid var(--line); border-radius: 22px;
-  padding: 2.2rem; position: relative; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.6);
+  padding: 2.2rem; position: relative; box-shadow: 0 30px 80px rgba(0,0,0,.6);
 }
-.anim-step { transition: opacity .25s ease, transform .25s ease; }
-.anim-step.slide-out-left { opacity: 0; transform: translateX(-40px); pointer-events: none; position: absolute; width: calc(100% - 4.4rem); }
+.anim-step { transition: opacity .22s ease, transform .22s ease; }
+.anim-step.slide-out-left { opacity: 0; transform: translateX(-24px); pointer-events: none; }
 .anim-step.slide-in-right { opacity: 1; transform: translateX(0); }
 
 .sports-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1.5rem; }

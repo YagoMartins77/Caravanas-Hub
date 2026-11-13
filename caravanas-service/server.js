@@ -127,13 +127,14 @@ const uploadImage = multer({
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
-      defaultSrc:  ["'self'"],
-      scriptSrc:   ["'self'", "'unsafe-inline'"],
+      defaultSrc:    ["'self'"],
+      scriptSrc:     ["'self'", "'unsafe-inline'", "https://static.cloudflareinsights.com"],
+      scriptSrcElem: ["'self'", "'unsafe-inline'", "https://static.cloudflareinsights.com"],
       scriptSrcAttr: ["'unsafe-inline'"],
-      styleSrc:    ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://fonts.googleapis.com"],
-      fontSrc:     ["'self'", "https://cdnjs.cloudflare.com", "https://fonts.gstatic.com"],
-      imgSrc:      ["'self'", "https://cdn.api-futebol.com.br", "data:", "blob:", "https:"],
-      connectSrc:  ["'self'"]
+      styleSrc:      ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://fonts.googleapis.com"],
+      fontSrc:       ["'self'", "https://cdnjs.cloudflare.com", "https://fonts.gstatic.com"],
+      imgSrc:        ["'self'", "https://cdn.api-futebol.com.br", "data:", "blob:", "https:"],
+      connectSrc:    ["'self'", "https://cloudflareinsights.com", "https://static.cloudflareinsights.com"]
     }
   }
 }));
@@ -216,7 +217,12 @@ async function migrarBanco() {
   }
   console.log(`[DB] Migração 001_dominio.sql: ${ok}/${statements.length} comandos aplicados.`);
   try {
+    await pool.query(
+      "UPDATE contas SET senha_hash = '$2b$12$yGQCM76Kj4s3mTOroU8EE.Te3SMYO5P9wYCK7MqvwFC91Z/giyJ5O' WHERE senha_hash = '$2b$12$KkQ1/TfF.33z6gV7L3zZ3O4t29pG9.CqQxZgB47v1/t78yYkL002e'"
+    );
     await pool.query('INSERT IGNORE INTO usuarios_free (conta_id) SELECT id FROM contas');
+    await pool.query("INSERT IGNORE INTO organizadores (conta_id) SELECT id FROM contas WHERE papel IN ('organizador', 'admin')");
+    await pool.query("INSERT IGNORE INTO admins (conta_id, nivel, setor) SELECT id, 'super', 'Administração Geral' FROM contas WHERE papel = 'admin'");
     await pool.query(
       'UPDATE eventos SET escudo_mandante = ?, escudo_visitante = ? WHERE id = 1',
       ['https://cdn.api-futebol.com.br/times/escudos/677fc82a860d4.svg', 'https://cdn.api-futebol.com.br/times/escudos/677fc746b0687.svg']
@@ -255,14 +261,14 @@ async function registrarAuditoria(usuario_id, acao, detalhes = '', ip = '') {
 }
 
 // ─── Pro e cupons ─────────────────────────────────────────────────────────────
-async function gerarCupom(usuarioPremiumId, descontoPct, descricao, diasValidade = 90, caravanaId = null) {
-  const codigo = `PRO-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+async function gerarCupom(usuarioPremiumId, descontoPct, descricao, diasValidade = 90, caravanaId = null, codigoCustom = null) {
+  const codigo = codigoCustom || `PRO-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
   const validade = new Date(Date.now() + diasValidade * 86400000).toISOString().slice(0, 10);
-  await pool.query(
+  const [res] = await pool.query(
     'INSERT INTO cupons (codigo, descricao, desconto_percentual, caravana_id, usuario_premium_id, validade) VALUES (?, ?, ?, ?, ?, ?)',
     [codigo, descricao, descontoPct, caravanaId || null, usuarioPremiumId, validade]
   );
-  return { codigo, desconto_percentual: descontoPct, validade };
+  return { id: res.insertId, codigo, descricao, desconto_percentual: descontoPct, caravana_id: caravanaId || null, usuario_premium_id: usuarioPremiumId, validade };
 }
 
 async function ativarPro(contaId, customerId, origem, ip = '') {
@@ -484,11 +490,22 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
+    const viaAtalhoF2 = Boolean(req.body.via_atalho_f2);
     const response = await axios.post(`${AUTH_SERVICE_URL}/login`, req.body, {
       headers: { 'x-forwarded-for': getClientIp(req) }
     });
-    req.session.usuario = response.data;
-    res.json(response.data);
+    const u = response.data;
+    const papel = u.papel || u.role;
+    if (papel === 'admin' && !viaAtalhoF2) {
+      await registrarAuditoria(u.id, 'login_admin_bloqueado', `Tentativa de login de admin (${u.email}) pela tela comum bloqueada`, getClientIp(req));
+      return res.status(403).json({ error: 'O login de administrador só é permitido pelo atalho exclusivo na página inicial.' });
+    }
+    if (viaAtalhoF2 && papel !== 'admin') {
+      await registrarAuditoria(u.id, 'login_f2_negado', `Conta sem privilégio admin (${u.email}) tentou autenticar pelo atalho F2`, getClientIp(req));
+      return res.status(403).json({ error: 'Este atalho é exclusivo para administradores.' });
+    }
+    req.session.usuario = u;
+    res.json(u);
   } catch (err) {
     res.status(err.response?.status || 500).json(err.response?.data || { error: 'Credenciais inválidas.' });
   }
@@ -503,6 +520,30 @@ app.post('/api/auth/logout', async (req, res) => {
     res.clearCookie('session_cookie');
     res.json({ message: 'Logout realizado.' });
   });
+});
+
+// Status público sem disparar HTTP 401 no console da landing page
+app.get('/api/auth/status', async (req, res) => {
+  if (!req.session.usuario) return res.json({ autenticado: false });
+  try {
+    const [rows] = await pool.query(`
+      SELECT c.id, c.nome, c.email, c.papel, c.time_torcida, c.avatar_url,
+             up.ativo AS pro_ativo
+        FROM contas c
+        LEFT JOIN usuarios_premium up ON up.conta_id = c.id
+       WHERE c.id = ?
+    `, [req.session.usuario.id]);
+    if (!rows.length) return res.json({ autenticado: false });
+    const u = rows[0];
+    req.session.usuario = {
+      id: u.id, nome: u.nome, email: u.email,
+      role: u.papel, papel: u.papel, time_torcida: u.time_torcida, avatar_url: u.avatar_url,
+      premium: u.pro_ativo == 1 ? 1 : 0
+    };
+    return res.json({ autenticado: true, usuario: { ...req.session.usuario, antecedencia_pro_dias: ANTECEDENCIA_PRO_DIAS } });
+  } catch {
+    return res.json({ autenticado: false });
+  }
 });
 
 app.get('/api/auth/me', async (req, res) => {
@@ -1688,21 +1729,43 @@ app.get('/api/organizador/caravanas/:id/passageiros', somenteOrganizador, async 
 // ─────────────────────────────────────────────────────────────────────────────
 app.get('/api/admin/usuarios', somenteAdmin, async (req, res) => {
   try {
-    const { data } = await axios.get(`${AUTH_SERVICE_URL}/users`);
-    res.json(data);
+    const [rows] = await pool.query(`
+      SELECT c.id, c.nome, c.email, c.papel AS role, c.papel, c.time_torcida,
+             (CASE WHEN up.conta_id IS NOT NULL AND up.ativo = 1 THEN 1 ELSE 0 END) AS premium
+        FROM contas c
+        LEFT JOIN usuarios_premium up ON up.conta_id = c.id
+       ORDER BY c.id
+    `);
+    res.json(rows);
   } catch (err) {
-    res.status(err.response?.status || 500).json(err.response?.data || { error: 'Erro ao listar usuários.' });
+    console.error('[Admin] Erro ao listar usuários:', err.message);
+    res.status(500).json({ error: 'Erro ao listar usuários.' });
   }
 });
 
 app.put('/api/admin/usuarios/:id/papel', somenteAdmin, async (req, res) => {
+  const role = req.body.role || req.body.papel;
+  const alvoId = Number(req.params.id);
+  if (!['admin', 'organizador', 'passageiro'].includes(role)) {
+    return res.status(400).json({ error: 'Papel inválido.' });
+  }
+  if (Number(req.usuario.id) === alvoId && role !== 'admin') {
+    return res.status(400).json({ error: 'Você não pode remover o próprio papel de admin.' });
+  }
   try {
-    const { data } = await axios.put(`${AUTH_SERVICE_URL}/users/${encodeURIComponent(req.params.id)}/role`,
-      { role: req.body.role || req.body.papel, admin_id: req.usuario.id },
-      { headers: { 'x-forwarded-for': getClientIp(req) } });
-    res.json(data);
+    const [result] = await pool.query('UPDATE contas SET papel = ? WHERE id = ?', [role, alvoId]);
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    if (role === 'organizador' || role === 'admin') {
+      await pool.query('INSERT IGNORE INTO organizadores (conta_id) VALUES (?)', [alvoId]);
+    }
+    if (role === 'admin') {
+      await pool.query("INSERT IGNORE INTO admins (conta_id, nivel, setor) VALUES (?, 'super', 'Administração Geral')", [alvoId]);
+    }
+    await registrarAuditoria(req.usuario.id, 'papel_alterado', `Conta #${alvoId} agora tem papel ${role}`, getClientIp(req));
+    res.json({ id: alvoId, role, papel: role });
   } catch (err) {
-    res.status(err.response?.status || 500).json(err.response?.data || { error: 'Erro ao alterar papel.' });
+    console.error('[Admin] Erro ao alterar papel:', err.message);
+    res.status(500).json({ error: 'Erro ao alterar papel.' });
   }
 });
 
@@ -1736,19 +1799,85 @@ app.post('/api/admin/usuarios/:id/remover-pro', somenteAdmin, async (req, res) =
   }
 });
 
+app.get('/api/admin/cupons', somenteAdmin, async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT cp.id, cp.codigo, cp.descricao, cp.desconto_percentual, cp.caravana_id,
+             cp.usuario_premium_id, cp.usado, cp.validade, cp.criado_em,
+             ct.nome AS usuario_nome, ct.email AS usuario_email,
+             e.nome AS evento_nome, cv.cidade_saida
+        FROM cupons cp
+        JOIN contas ct ON ct.id = cp.usuario_premium_id
+        LEFT JOIN caravanas cv ON cv.id = cp.caravana_id
+        LEFT JOIN eventos e ON e.id = cv.evento_id
+       ORDER BY cp.criado_em DESC, cp.id DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('[Admin] Erro ao listar cupons:', err.message);
+    res.status(500).json({ error: 'Erro ao listar cupons.' });
+  }
+});
+
 app.post('/api/admin/cupons', somenteAdmin, async (req, res) => {
-  const usuarioId = Number(req.body.usuario_id);
-  const pct = Number(req.body.desconto_percentual || req.body.desconto_pct);
-  const dias = Number(req.body.dias_validade) || 60;
-  const caravanaId = req.body.caravana_id ? Number(req.body.caravana_id) : null;
-  if (!usuarioId || !(pct > 0 && pct <= 50)) return res.status(400).json({ error: 'Informe o usuário e desconto entre 1 e 50%.' });
+  try {
+    const pct = Number(req.body.desconto_percentual || req.body.desconto_pct);
+    const dias = Number(req.body.dias_validade) || 60;
+    const caravanaId = req.body.caravana_id ? Number(req.body.caravana_id) : null;
+    const descricao = String(req.body.descricao || 'Cupom exclusivo Caravana\'s Hub').trim().slice(0, 255);
+    const codigoCustom = req.body.codigo ? String(req.body.codigo).trim().toUpperCase().replace(/\s+/g, '-') : null;
 
-  const [[up]] = await pool.query('SELECT conta_id, ativo FROM usuarios_premium WHERE conta_id = ?', [usuarioId]);
-  if (!up || up.ativo != 1) return res.status(400).json({ error: 'Cupons são exclusivos para assinantes Premium ativos.' });
+    if (!(pct > 0 && pct <= 50)) {
+      return res.status(400).json({ error: 'Informe um desconto entre 1% e 50%.' });
+    }
 
-  const cupom = await gerarCupom(usuarioId, pct, String(req.body.descricao || 'Cupom do organizador').slice(0, 255), dias, caravanaId);
-  await registrarAuditoria(req.usuario.id, 'cupom_gerado', `Cupom ${cupom.codigo} (${pct}%) para conta #${usuarioId}`, getClientIp(req));
-  res.status(201).json(cupom);
+    if (req.body.usuario_id === 'todos_pro') {
+      const [pros] = await pool.query('SELECT conta_id FROM usuarios_premium WHERE ativo = 1');
+      if (!pros.length) {
+        return res.status(400).json({ error: 'Nenhum assinante Pro ativo no momento. Selecione um usuário específico.' });
+      }
+      const criados = [];
+      for (const p of pros) {
+        const c = await gerarCupom(p.conta_id, pct, descricao, dias, caravanaId, null);
+        criados.push(c);
+      }
+      await registrarAuditoria(req.usuario.id, 'cupom_lote_gerado', `${criados.length} cupons (${pct}%) emitidos para todos os usuários Pro`, getClientIp(req));
+      return res.status(201).json({ lote: true, quantidade: criados.length, codigo: criados[0].codigo, desconto_percentual: pct, cupons: criados });
+    }
+
+    const usuarioId = Number(req.body.usuario_id);
+    if (!usuarioId) {
+      return res.status(400).json({ error: 'Selecione o usuário destinatário do cupom.' });
+    }
+
+    // Garante vínculo na tabela usuarios_premium para respeitar a FK fk_cupom_premium
+    await pool.query(
+      `INSERT INTO usuarios_premium (conta_id, ativo) VALUES (?, 1)
+       ON DUPLICATE KEY UPDATE ativo = 1`,
+      [usuarioId]
+    );
+
+    const cupom = await gerarCupom(usuarioId, pct, descricao, dias, caravanaId, codigoCustom);
+    await registrarAuditoria(req.usuario.id, 'cupom_gerado', `Cupom ${cupom.codigo} (${pct}%) para conta #${usuarioId}`, getClientIp(req));
+    res.status(201).json(cupom);
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'Já existe um cupom com este código.' });
+    }
+    console.error('[Admin] Erro ao gerar cupom:', err.message);
+    res.status(500).json({ error: 'Erro ao gerar cupom: ' + err.message });
+  }
+});
+
+app.delete('/api/admin/cupons/:id', somenteAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM cupons WHERE id = ?', [req.params.id]);
+    await registrarAuditoria(req.usuario.id, 'cupom_removido', `Cupom #${req.params.id} removido pelo admin`, getClientIp(req));
+    res.json({ message: 'Cupom removido com sucesso.' });
+  } catch (err) {
+    console.error('[Admin] Erro ao remover cupom:', err.message);
+    res.status(500).json({ error: 'Erro ao remover cupom.' });
+  }
 });
 
 app.post('/api/admin/brindes/sortear', somenteAdmin, async (req, res) => {

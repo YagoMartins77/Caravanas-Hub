@@ -1,29 +1,17 @@
 -- ============================================================================
--- 1. Remoção de tabelas (Ordem reversa de dependência)
+-- 1. Remoção das tabelas do domínio antigo (filmes)
 -- ============================================================================
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS comentarios;
 DROP TABLE IF EXISTS favoritos;
 
-DROP TABLE IF EXISTS brindes_premios_sorteios;
-DROP TABLE IF EXISTS cupons;
-DROP TABLE IF EXISTS reservas;
-DROP TABLE IF EXISTS caravanas;
-DROP TABLE IF EXISTS eventos;
-DROP TABLE IF EXISTS tipos_evento;
-DROP TABLE IF EXISTS organizadores;
-DROP TABLE IF EXISTS admins;
-DROP TABLE IF EXISTS usuarios_premium;
-DROP TABLE IF EXISTS usuarios_free;
-DROP TABLE IF EXISTS contas;
-
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
 -- 2. contas — identidade única de login (Base para as outras tabelas)
 -- ============================================================================
-CREATE TABLE contas (
+CREATE TABLE IF NOT EXISTS contas (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     nome            VARCHAR(150) NOT NULL,
     email           VARCHAR(190) NOT NULL UNIQUE,
@@ -37,7 +25,7 @@ CREATE TABLE contas (
 -- ============================================================================
 -- 3. admins — administradores da plataforma
 -- ============================================================================
-CREATE TABLE admins (
+CREATE TABLE IF NOT EXISTS admins (
     conta_id        INT PRIMARY KEY,
     nivel           ENUM('super', 'moderador', 'suporte') NOT NULL DEFAULT 'moderador',
     setor           VARCHAR(100) NULL,
@@ -48,7 +36,7 @@ CREATE TABLE admins (
 -- ============================================================================
 -- 4. usuarios_free — passageiros no plano gratuito
 -- ============================================================================
-CREATE TABLE usuarios_free (
+CREATE TABLE IF NOT EXISTS usuarios_free (
     conta_id        INT PRIMARY KEY,
     desde           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_free_conta FOREIGN KEY (conta_id) REFERENCES contas(id) ON DELETE CASCADE
@@ -57,7 +45,7 @@ CREATE TABLE usuarios_free (
 -- ============================================================================
 -- 5. usuarios_premium — assinantes do plano Pro (Stripe)
 -- ============================================================================
-CREATE TABLE usuarios_premium (
+CREATE TABLE IF NOT EXISTS usuarios_premium (
     conta_id              INT PRIMARY KEY,
     stripe_customer_id    VARCHAR(255) NULL,
     data_assinatura       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -68,7 +56,7 @@ CREATE TABLE usuarios_premium (
 -- ============================================================================
 -- 6. organizadores — responsável pela van/ônibus de uma caravana
 -- ============================================================================
-CREATE TABLE organizadores (
+CREATE TABLE IF NOT EXISTS organizadores (
     conta_id            INT PRIMARY KEY,
     documento           VARCHAR(30) NULL,     -- CPF ou CNPJ
     descricao_frota     VARCHAR(255) NULL,    -- ex.: "Van Sprinter, 16 lugares"
@@ -79,7 +67,7 @@ CREATE TABLE organizadores (
 -- ============================================================================
 -- 7. tipos_evento e eventos
 -- ============================================================================
-CREATE TABLE tipos_evento (
+CREATE TABLE IF NOT EXISTS tipos_evento (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     nome            VARCHAR(60) NOT NULL UNIQUE,
     somente_admin   TINYINT(1) NOT NULL DEFAULT 0,
@@ -92,7 +80,7 @@ INSERT INTO tipos_evento (id, nome, somente_admin) VALUES
     (3, 'mma',     0)
 ON DUPLICATE KEY UPDATE nome=VALUES(nome), somente_admin=VALUES(somente_admin);
 
-CREATE TABLE eventos (
+CREATE TABLE IF NOT EXISTS eventos (
     id               INT AUTO_INCREMENT PRIMARY KEY,
     tipo_evento_id   INT NOT NULL,
     nome             VARCHAR(150) NOT NULL,
@@ -113,7 +101,7 @@ CREATE TABLE eventos (
 -- ============================================================================
 -- 8. caravanas — uma viagem específica para um evento
 -- ============================================================================
-CREATE TABLE caravanas (
+CREATE TABLE IF NOT EXISTS caravanas (
     id                 INT AUTO_INCREMENT PRIMARY KEY,
     evento_id          INT NOT NULL,
     organizador_id     INT NOT NULL,
@@ -133,7 +121,7 @@ CREATE TABLE caravanas (
 -- ============================================================================
 -- 9. reservas — passageiro reservando vaga numa caravana
 -- ============================================================================
-CREATE TABLE reservas (
+CREATE TABLE IF NOT EXISTS reservas (
     id                    INT AUTO_INCREMENT PRIMARY KEY,
     caravana_id           INT NOT NULL,
     usuario_free_id       INT NULL,
@@ -158,7 +146,7 @@ CREATE TABLE reservas (
 -- ============================================================================
 -- 10. cupons — benefício exclusivo de assinantes Premium
 -- ============================================================================
-CREATE TABLE cupons (
+CREATE TABLE IF NOT EXISTS cupons (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
     codigo              VARCHAR(40) NOT NULL UNIQUE,
     descricao           VARCHAR(255) NOT NULL,
@@ -175,7 +163,7 @@ CREATE TABLE cupons (
 -- ============================================================================
 -- 11. brindes_premios_sorteios — benefícios físicos e sorteios
 -- ============================================================================
-CREATE TABLE brindes_premios_sorteios (
+CREATE TABLE IF NOT EXISTS brindes_premios_sorteios (
     id                      INT AUTO_INCREMENT PRIMARY KEY,
     tipo                    ENUM('brinde', 'premio', 'sorteio') NOT NULL,
     nome                    VARCHAR(150) NOT NULL,
@@ -207,12 +195,15 @@ CREATE TABLE IF NOT EXISTS reset_tokens (
 
 -- ============================================================================
 -- 13. SEED INICIAL (Usuário Root e dados de demonstração)
---     Senha padrão do root e organizadores: "root123" ou "123456"
 -- ============================================================================
 INSERT IGNORE INTO contas (id, nome, email, senha_hash, papel, time_torcida) VALUES
-  (1, 'Administrador Root', 'root@caravanashub.com.br', '$2b$12$KkQ1/TfF.33z6gV7L3zZ3O4t29pG9.CqQxZgB47v1/t78yYkL002e', 'admin', 'Santos'),
-  (2, 'Carlos Frota Alta Paulista', 'organizador@caravanashub.com.br', '$2b$12$KkQ1/TfF.33z6gV7L3zZ3O4t29pG9.CqQxZgB47v1/t78yYkL002e', 'organizador', 'Corinthians'),
-  (3, 'Torcedor Exemplo', 'torcedor@email.com', '$2b$12$KkQ1/TfF.33z6gV7L3zZ3O4t29pG9.CqQxZgB47v1/t78yYkL002e', 'passageiro', 'Santos');
+  (1, 'Administrador Root', 'root@caravanashub.com.br', '$2b$12$yGQCM76Kj4s3mTOroU8EE.Te3SMYO5P9wYCK7MqvwFC91Z/giyJ5O', 'admin', 'Santos'),
+  (2, 'Carlos Frota Alta Paulista', 'organizador@caravanashub.com.br', '$2b$12$yGQCM76Kj4s3mTOroU8EE.Te3SMYO5P9wYCK7MqvwFC91Z/giyJ5O', 'organizador', 'Corinthians'),
+  (3, 'Torcedor Exemplo', 'torcedor@email.com', '$2b$12$yGQCM76Kj4s3mTOroU8EE.Te3SMYO5P9wYCK7MqvwFC91Z/giyJ5O', 'passageiro', 'Santos');
+
+UPDATE contas
+   SET senha_hash = '$2b$12$yGQCM76Kj4s3mTOroU8EE.Te3SMYO5P9wYCK7MqvwFC91Z/giyJ5O'
+ WHERE senha_hash = '$2b$12$KkQ1/TfF.33z6gV7L3zZ3O4t29pG9.CqQxZgB47v1/t78yYkL002e';
 
 -- Vincula o admin à tabela admins
 INSERT IGNORE INTO admins (conta_id, nivel, setor) VALUES (1, 'super', 'Administração Geral');

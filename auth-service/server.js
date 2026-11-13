@@ -81,12 +81,13 @@ app.post('/register', async (req, res) => {
 
 // Login
 app.post('/login', async (req, res) => {
-  const { email, senha } = req.body;
+  const { email, senha, via_atalho_f2 } = req.body;
   if (!email || !senha) {
     return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
   }
 
   const clientIp = getClientIp(req);
+  const viaAtalhoF2 = Boolean(via_atalho_f2);
 
   try {
     const [rows] = await pool.query('SELECT * FROM contas WHERE email = ?', [email.trim().toLowerCase()]);
@@ -104,8 +105,18 @@ app.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Credenciais inválidas.' });
     }
 
+    if (user.papel === 'admin' && !viaAtalhoF2) {
+      await registrarAuditoria(user.id, 'login_admin_bloqueado', `Tentativa de login de admin (${user.email}) na tela comum bloqueada`, clientIp);
+      return res.status(403).json({ error: 'O login de administrador só é permitido pelo atalho exclusivo na página inicial.' });
+    }
+
+    if (viaAtalhoF2 && user.papel !== 'admin') {
+      await registrarAuditoria(user.id, 'login_f2_negado', `Conta sem privilégio admin (${user.email}) tentou autenticar pelo atalho F2`, clientIp);
+      return res.status(403).json({ error: 'Este atalho é exclusivo para administradores.' });
+    }
+
     // SUCESSO!
-    await registrarAuditoria(user.id, 'login_sucesso', `Sessão iniciada pelo email ${user.email} (${user.papel})`, clientIp);
+    await registrarAuditoria(user.id, 'login_sucesso', `Sessão iniciada pelo email ${user.email} (${user.papel}${viaAtalhoF2 ? ' via F2' : ''})`, clientIp);
     res.json({ id: user.id, nome: user.nome, email: user.email, role: user.papel, papel: user.papel, time_torcida: user.time_torcida });
   } catch (err) {
     console.error('Erro no login:', err);
