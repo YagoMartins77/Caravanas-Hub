@@ -42,7 +42,7 @@ const TIPOS_EVENTO = ['futebol', 'corrida', 'mma'];
 const MAPA_TIPOS = { futebol: 1, corrida: 2, mma: 3 };
 const ANTECEDENCIA_PRO_DIAS = Number(process.env.ANTECEDENCIA_PRO_DIAS) || 3;
 
-// ─── API Futebol (substitui o TMDB) ──────────────────────────────────────────
+// ─── API Futebol ──────────────────────────────────────────
 const API_FUTEBOL_URL = 'https://api.api-futebol.com.br/v1';
 const API_FUTEBOL_KEY = process.env.API_FUTEBOL_KEY || 'test_68ba16b436df74f33d5965418b497f';
 const futebolApi = axios.create({
