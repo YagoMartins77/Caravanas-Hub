@@ -8,18 +8,14 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="auth-page">
-  <div class="auth-card">
+  <div class="auth-card" id="authBox">
     <a class="brand" href="/"><div class="logo"><i class="fas fa-bus"></i></div><span>Caravana's <b>Hub</b></span></a>
     <h2 id="formTitle">Entrar</h2>
 
     <form id="authForm">
       <div class="field" id="campoNome" style="display:none;">
-        <label for="nome">Nome</label>
+        <label for="nome">Nome completo</label>
         <input type="text" id="nome" placeholder="Seu nome">
-      </div>
-      <div class="field" id="campoTime" style="display:none;">
-        <label for="time_torcida">Time / atleta que você torce (opcional)</label>
-        <input type="text" id="time_torcida" placeholder="Ex.: Palmeiras, Ferrari, Charles do Bronx">
       </div>
       <div class="field">
         <label for="email">E-mail</label>
@@ -37,15 +33,87 @@
     <div id="msg" class="msg"></div>
   </div>
 
+  <!-- ═══ MODAL ONBOARDING ANIMADO (2 CARTÕES: ESPORTE E TIME) ═══ -->
+  <div class="modal" id="modalOnboarding">
+    <div class="onboarding-card-box" id="onboardingBox">
+      <!-- Botão fechar (X) -->
+      <button class="modal-close" id="btnFecharOnboarding" title="Pular por enquanto" style="position:absolute;top:1.2rem;right:1.2rem;background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;">
+        <i class="fas fa-xmark"></i>
+      </button>
+
+      <!-- ── CARD 1: Escolha do Esporte Favorito ── -->
+      <div id="stepEsporte" class="anim-step">
+        <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.4rem;">
+          <span class="badge badge-futebol" style="font-size:.75rem;">PASSO 1 DE 2</span>
+        </div>
+        <h2 style="font-size:1.5rem;margin-bottom:.3rem;">Qual é o seu esporte favorito?</h2>
+        <p class="muted small">Vamos personalizar suas caravanas recomendadas com base na sua paixão.</p>
+
+        <div class="sports-grid">
+          <div class="sport-btn futebol" id="btnSportFutebol">
+            <i class="fas fa-futbol" style="color:var(--green)"></i>
+            <strong>Futebol</strong>
+            <span class="muted small" style="font-size:.76rem;">Brasileirão, Copas e clássicos</span>
+          </div>
+          <div class="sport-btn corrida" id="btnSportCorrida">
+            <i class="fas fa-flag-checkered" style="color:#ff5a52"></i>
+            <strong>Fórmula 1</strong>
+            <span class="muted small" style="font-size:.76rem;">GP de São Paulo em Interlagos</span>
+          </div>
+          <div class="sport-btn mma" id="btnSportMMA">
+            <i class="fas fa-hand-fist" style="color:#c084fc"></i>
+            <strong>MMA</strong>
+            <span class="muted small" style="font-size:.76rem;">UFC e grandes noites de luta</span>
+          </div>
+        </div>
+
+        <div style="margin-top:1.6rem;text-align:right;">
+          <button type="button" class="btn btn-ghost btn-sm" id="btnPularStep1">Pular e ir para o feed</button>
+        </div>
+      </div>
+
+      <!-- ── CARD 2: Escolha do Clube (Série A ou Busca) ── -->
+      <div id="stepTime" class="anim-step" style="display:none;opacity:0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.3rem;">
+          <button type="button" class="btn btn-ghost btn-sm" id="btnVoltarEsporte" style="padding:.2rem .5rem;font-size:.8rem;">
+            <i class="fas fa-arrow-left"></i> Voltar
+          </button>
+          <span class="badge badge-futebol" style="font-size:.75rem;">PASSO 2 DE 2</span>
+        </div>
+
+        <h2 style="font-size:1.45rem;margin-bottom:.3rem;">Para qual time você torce?</h2>
+        <p class="muted small">Selecione seu clube do Brasileirão Série A ou busque pelo nome.</p>
+
+        <div class="times-search-wrap">
+          <i class="fas fa-magnifying-glass"></i>
+          <input type="text" id="inputBuscaTime" placeholder="Buscar clube (ex: Santos, Novorizontino, Flamengo...)">
+        </div>
+
+        <!-- Grade de times da Série A -->
+        <div class="times-grid" id="gridTimes">
+          <div style="grid-column:1/-1;text-align:center;padding:1.5rem;color:var(--muted);">
+            <i class="fas fa-spinner fa-spin"></i> Carregando clubes da Série A...
+          </div>
+        </div>
+
+        <div id="customTeamRow" style="display:none;margin-top:1rem;background:var(--bg-2);padding:.8rem;border-radius:12px;border:1px dashed var(--line);align-items:center;justify-content:space-between;">
+          <span style="font-size:.86rem;">Torce para outro time? <strong id="customTeamNome"></strong></span>
+          <button type="button" class="btn btn-primary btn-sm" id="btnConfirmarCustom">Escolher este</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
+    'use strict';
     let modo = 'login';
     const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
     function setModo(m) {
       modo = m;
       $('msg').textContent = '';
       $('campoNome').style.display = m === 'cadastro' ? 'block' : 'none';
-      $('campoTime').style.display = m === 'cadastro' ? 'block' : 'none';
       $('nome').required = m === 'cadastro';
       $('campoSenha').style.display = m === 'esqueci' ? 'none' : 'block';
       $('senha').required = m !== 'esqueci';
@@ -70,27 +138,43 @@
       const email = $('email').value.trim();
       const senha = $('senha').value;
       const nome = $('nome').value.trim();
-      const time_torcida = $('time_torcida').value.trim();
+
       const rotas = {
         login:    ['/api/auth/login', { email, senha }],
-        cadastro: ['/api/auth/register', { nome, email, senha, time_torcida }],
+        cadastro: ['/api/auth/register', { nome, email, senha }],
         esqueci:  ['/api/auth/forgot-password', { email }]
       };
       const [url, body] = rotas[modo];
       const msg = $('msg');
       $('submitBtn').disabled = true;
+
       try {
         const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Erro na requisição.');
-        if (modo === 'login') return (window.location.href = 'app.html');
+
+        if (modo === 'login') {
+          return (window.location.href = 'app.html');
+        }
+
         if (modo === 'cadastro') {
-          // Já entra direto depois de cadastrar
-          const login = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, senha }) });
-          if (login.ok) return (window.location.href = 'app.html');
-          msg.className = 'msg ok'; msg.textContent = 'Conta criada! Faça login.'; setModo('login');
+          // Faz login automático para criar a sessão
+          const loginRes = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, senha })
+          });
+          if (loginRes.ok) {
+            // Abre o modal de onboarding com animação!
+            abrirOnboarding();
+            return;
+          }
+          msg.className = 'msg ok';
+          msg.textContent = 'Conta criada com sucesso! Faça login.';
+          setModo('login');
           return;
         }
+
         msg.className = 'msg ok';
         msg.textContent = data.message || 'Se o e-mail existir, enviamos o link.';
       } catch (err) {
@@ -98,6 +182,154 @@
         msg.textContent = err.message;
       } finally {
         $('submitBtn').disabled = false;
+      }
+    });
+
+    // ─── ONBOARDING ANIMADO (2 CARTÕES) ──────────────────────────
+    let timesSerieA = [];
+
+    function abrirOnboarding() {
+      $('modalOnboarding').classList.add('open');
+      mostrarStep1();
+      carregarTimesSerieA();
+    }
+
+    function fecharOnboarding() {
+      $('modalOnboarding').classList.remove('open');
+      window.location.href = 'app.html';
+    }
+
+    $('btnFecharOnboarding').addEventListener('click', fecharOnboarding);
+    $('btnPularStep1').addEventListener('click', fecharOnboarding);
+
+    function mostrarStep1() {
+      const s1 = $('stepEsporte');
+      const s2 = $('stepTime');
+      s1.style.display = 'block';
+      s1.className = 'anim-step anim-step-active';
+      s2.style.display = 'none';
+      s2.style.opacity = '0';
+    }
+
+    function mostrarStep2() {
+      const s1 = $('stepEsporte');
+      const s2 = $('stepTime');
+      // Animação Card 1 desliza para esquerda e some
+      s1.className = 'anim-step slide-out-left';
+      setTimeout(() => {
+        s1.style.display = 'none';
+        s2.style.display = 'block';
+        s2.style.opacity = '0';
+        s2.style.transform = 'translateX(40px)';
+        // Força reflow
+        void s2.offsetWidth;
+        s2.style.transition = 'opacity .25s ease, transform .25s ease';
+        s2.style.opacity = '1';
+        s2.style.transform = 'translateX(0)';
+      }, 200);
+    }
+
+    $('btnVoltarEsporte').addEventListener('click', () => {
+      const s1 = $('stepEsporte');
+      const s2 = $('stepTime');
+      s2.style.transition = 'opacity .2s ease, transform .2s ease';
+      s2.style.opacity = '0';
+      s2.style.transform = 'translateX(40px)';
+      setTimeout(() => {
+        s2.style.display = 'none';
+        s1.style.display = 'block';
+        s1.style.opacity = '0';
+        s1.style.transform = 'translateX(-40px)';
+        void s1.offsetWidth;
+        s1.style.transition = 'opacity .25s ease, transform .25s ease';
+        s1.style.opacity = '1';
+        s1.style.transform = 'translateX(0)';
+      }, 200);
+    });
+
+    $('btnSportFutebol').addEventListener('click', () => {
+      mostrarStep2();
+    });
+
+    $('btnSportCorrida').addEventListener('click', async () => {
+      await salvarPreferencia('Fórmula 1');
+    });
+
+    $('btnSportMMA').addEventListener('click', async () => {
+      await salvarPreferencia('MMA');
+    });
+
+    async function salvarPreferencia(timeOuEsporte) {
+      try {
+        await fetch('/api/perfil/time', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ time_torcida: timeOuEsporte })
+        });
+      } catch (e) {
+        console.warn('Erro ao salvar preferência:', e);
+      }
+      window.location.href = 'app.html';
+    }
+
+    async function carregarTimesSerieA() {
+      try {
+        const res = await fetch('/api/futebol/serie-a-times');
+        timesSerieA = await res.json();
+        renderizarTimes(timesSerieA);
+      } catch (err) {
+        $('gridTimes').innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:1rem;color:#f87171;">Não foi possível listar os times agora. Digite o seu time na busca acima.</div>';
+      }
+    }
+
+    function renderizarTimes(lista) {
+      const grid = $('gridTimes');
+      if (!lista.length) {
+        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:1.5rem;color:var(--muted);">Nenhum clube encontrado na Série A com esse nome.</div>';
+        return;
+      }
+      grid.innerHTML = lista.map(t => `
+        <div class="time-item" data-time="${esc(t.nome)}">
+          <img src="${esc(t.escudo)}" alt="${esc(t.nome)}" loading="lazy">
+          <span>${esc(t.nome)}</span>
+        </div>
+      `).join('');
+
+      grid.querySelectorAll('.time-item').forEach(item => {
+        item.addEventListener('click', async () => {
+          grid.querySelectorAll('.time-item').forEach(el => el.classList.remove('selected'));
+          item.classList.add('selected');
+          item.innerHTML += ' <i class="fas fa-check" style="color:var(--green)"></i>';
+          await salvarPreferencia(item.dataset.time);
+        });
+      });
+    }
+
+    // Busca em tempo real
+    $('inputBuscaTime').addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      const filtrados = timesSerieA.filter(t => t.nome.toLowerCase().includes(q) || (t.sigla && t.sigla.toLowerCase().includes(q)));
+      renderizarTimes(filtrados);
+
+      const customRow = $('customTeamRow');
+      if (q.length >= 2 && !timesSerieA.some(t => t.nome.toLowerCase() === q)) {
+        customRow.style.display = 'flex';
+        $('customTeamNome').textContent = e.target.value.trim();
+      } else {
+        customRow.style.display = 'none';
+      }
+    });
+
+    $('btnConfirmarCustom').addEventListener('click', async () => {
+      const nome = $('inputBuscaTime').value.trim();
+      if (nome) await salvarPreferencia(nome);
+    });
+
+    $('inputBuscaTime').addEventListener('keydown', async (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const nome = $('inputBuscaTime').value.trim();
+        if (nome) await salvarPreferencia(nome);
       }
     });
 

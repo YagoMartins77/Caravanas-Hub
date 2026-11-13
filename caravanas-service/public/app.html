@@ -19,19 +19,22 @@
         <a data-view="admin" class="hidden" id="linkAdmin">Admin</a>
       </div>
       <div class="nav-right">
+        <button class="btn btn-ghost btn-sm" id="btnEditarTime" title="Clique para alterar seu time ou esporte favorito" style="border:1px solid var(--line);margin-right:.4rem;">
+          <i class="fas fa-futbol" id="icoMeuTime"></i> <span id="labelMeuTime">Meu Time</span>
+        </button>
         <span id="badgePlano"></span>
         <span id="badgePapel"></span>
         <label class="avatar" id="avatarBox" title="Trocar foto">
           <span id="avatarInicial">?</span>
           <input type="file" id="avatarInput" accept="image/*" hidden>
         </label>
-        <button class="btn btn-ghost btn-sm" id="btnSair"><i class="fas fa-right-from-bracket"></i></button>
+        <button class="btn btn-ghost btn-sm" id="btnSair" title="Sair da conta"><i class="fas fa-right-from-bracket"></i></button>
       </div>
     </div>
   </nav>
 
   <main class="app-main container">
-    <!-- ═══ CARAVANAS ═══ -->
+    <!-- ═══ CARAVANAS & JOGOS SÉRIE A ═══ -->
     <section id="view-caravanas" class="view">
       <div class="page-head">
         <div>
@@ -45,11 +48,32 @@
           <button class="chip" data-tipo="mma"><i class="fas fa-hand-fist"></i> MMA</button>
         </div>
       </div>
-      <div style="max-width:260px;margin-bottom:1.2rem;">
-        <select id="filtroCidade"><option value="">Todas as cidades de saída</option></select>
+
+      <!-- Abas de Navegação Interna: Caravanas vs Jogos da Rodada -->
+      <div style="display:flex;gap:.6rem;margin-bottom:1.2rem;border-bottom:1px solid var(--line);padding-bottom:.8rem;align-items:center;flex-wrap:wrap;">
+        <button class="chip active" id="subtabCaravanas"><i class="fas fa-bus"></i> Caravanas Disponíveis</button>
+        <button class="chip" id="subtabJogosSerieA"><i class="fas fa-futbol"></i> Jogos da Rodada (Série A)</button>
+        <div id="secaoFiltroCidade" style="margin-left:auto;min-width:240px;">
+          <select id="filtroCidade"><option value="">Todas as cidades de saída</option></select>
+        </div>
       </div>
-      <div id="bannerPro"></div>
-      <div id="listaCaravanas" class="cards"></div>
+
+      <!-- Vitrine de Caravanas -->
+      <div id="secaoCaravanasVitrine">
+        <div id="bannerPro"></div>
+        <div id="listaCaravanas" class="cards"></div>
+      </div>
+
+      <!-- Seção Jogos da Série A (API Futebol) -->
+      <div id="secaoJogosSerieA" class="hidden">
+        <div style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;">
+          <span class="muted small" id="subtituloJogosApp">
+            <i class="fas fa-circle-info" style="color:var(--green)"></i> Confrontos oficiais da <strong>API Futebol</strong> com status de caravana confirmada na Alta Paulista.
+          </span>
+          <button class="btn btn-ghost btn-sm" id="btnAtualizarJogosApp"><i class="fas fa-rotate"></i> Atualizar</button>
+        </div>
+        <div id="listaJogosSerieAApp" class="jogos-grid"></div>
+      </div>
     </section>
 
     <!-- ═══ PASSAGENS ═══ -->
@@ -96,6 +120,60 @@
   </main>
 
   <div class="modal" id="modal"><div class="modal-box" id="modalBox"></div></div>
+
+  <!-- ═══ MODAL ANIMADO MEU TIME / ESPORTE FAVORITO ═══ -->
+  <div class="modal" id="modalMeuTime">
+    <div class="onboarding-card-box">
+      <button class="modal-close" id="btnFecharModalMeuTime" title="Fechar"><i class="fas fa-xmark"></i></button>
+
+      <!-- Step 1: Esporte -->
+      <div id="stepEsporteApp" class="anim-step">
+        <span class="badge badge-futebol" style="font-size:.75rem;">PREFERÊNCIAS</span>
+        <h2 style="font-size:1.45rem;margin-top:.4rem;margin-bottom:.3rem;">Qual é o seu esporte favorito?</h2>
+        <p class="muted small">As caravanas do seu interesse aparecem em destaque e no topo do feed.</p>
+        <div class="sports-grid">
+          <div class="sport-btn futebol" id="btnAppFutebol">
+            <i class="fas fa-futbol" style="color:var(--green)"></i>
+            <strong>Futebol</strong>
+            <span class="muted small" style="font-size:.76rem;">Brasileirão, Copas e clássicos</span>
+          </div>
+          <div class="sport-btn corrida" id="btnAppCorrida">
+            <i class="fas fa-flag-checkered" style="color:#ff5a52"></i>
+            <strong>Fórmula 1</strong>
+            <span class="muted small" style="font-size:.76rem;">GP de SP em Interlagos</span>
+          </div>
+          <div class="sport-btn mma" id="btnAppMMA">
+            <i class="fas fa-hand-fist" style="color:#c084fc"></i>
+            <strong>MMA</strong>
+            <span class="muted small" style="font-size:.76rem;">UFC e grandes noites de luta</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Time Série A / Busca -->
+      <div id="stepTimeApp" class="anim-step" style="display:none;opacity:0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.3rem;">
+          <button type="button" class="btn btn-ghost btn-sm" id="btnVoltarEsporteApp" style="padding:.2rem .5rem;font-size:.8rem;">
+            <i class="fas fa-arrow-left"></i> Voltar
+          </button>
+          <span class="badge badge-futebol" style="font-size:.75rem;">PASSO 2 DE 2</span>
+        </div>
+        <h2 style="font-size:1.45rem;margin-bottom:.3rem;">Para qual time você torce?</h2>
+        <p class="muted small">Selecione seu clube do Brasileirão Série A ou busque pelo nome.</p>
+        <div class="times-search-wrap">
+          <i class="fas fa-magnifying-glass"></i>
+          <input type="text" id="inputBuscaTimeApp" placeholder="Buscar clube (ex: Santos, Novorizontino, Flamengo...)">
+        </div>
+        <div class="times-grid" id="gridTimesApp">
+          <div style="grid-column:1/-1;text-align:center;padding:1.5rem;color:var(--muted);"><i class="fas fa-spinner fa-spin"></i> Carregando clubes...</div>
+        </div>
+        <div id="customTeamRowApp" style="display:none;margin-top:1rem;background:var(--bg-2);padding:.8rem;border-radius:12px;border:1px dashed var(--line);align-items:center;justify-content:space-between;">
+          <span style="font-size:.86rem;">Torce para outro time? <strong id="customTeamNomeApp"></strong></span>
+          <button type="button" class="btn btn-primary btn-sm" id="btnConfirmarCustomApp">Escolher este</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

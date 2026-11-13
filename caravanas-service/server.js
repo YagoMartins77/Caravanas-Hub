@@ -39,6 +39,7 @@ const CIDADES_ALTA_PAULISTA = [
   'Pacaembu', 'Parapuã', 'Pompeia', 'Quintana', 'Rinópolis', 'Tupã', 'Vera Cruz'
 ];
 const TIPOS_EVENTO = ['futebol', 'corrida', 'mma'];
+const MAPA_TIPOS = { futebol: 1, corrida: 2, mma: 3 };
 const ANTECEDENCIA_PRO_DIAS = Number(process.env.ANTECEDENCIA_PRO_DIAS) || 3;
 
 // ─── API Futebol (substitui o TMDB) ──────────────────────────────────────────
@@ -746,12 +747,13 @@ function aberturaPro(aberturaGeral) {
 }
 
 const SELECT_CARAVANA = `
-  SELECT c.*, e.tipo AS evento_tipo, e.nome AS evento_nome, e.local AS evento_local, e.pais AS evento_pais,
-         e.data_evento, e.valor_ingresso, e.escudo_mandante, e.escudo_visitante,
+  SELECT c.*, te.nome AS evento_tipo, e.tipo_evento_id, e.nome AS evento_nome, e.local AS evento_local, e.pais AS evento_pais,
+         e.data_evento, e.competicao, e.valor_ingresso, e.escudo_mandante, e.escudo_visitante,
          ct.nome AS organizador_nome, o.descricao_frota, o.contato_whatsapp,
          (SELECT COUNT(*) FROM reservas r WHERE r.caravana_id = c.id AND r.status_pagamento <> 'cancelado') AS ocupados
     FROM caravanas c
     JOIN eventos e       ON e.id = c.evento_id
+    JOIN tipos_evento te ON te.id = e.tipo_evento_id
     JOIN organizadores o ON o.conta_id = c.organizador_id
     JOIN contas ct       ON ct.id = o.conta_id`;
 
@@ -782,7 +784,7 @@ app.get('/api/caravanas', autenticado, async (req, res) => {
     const params = [];
     let where = ' WHERE 1=1';
     if (req.query.tipo && TIPOS_EVENTO.includes(req.query.tipo)) {
-      where += ' AND e.tipo = ?';
+      where += ' AND te.nome = ?';
       params.push(req.query.tipo);
     }
     if (req.query.cidade) {
@@ -793,7 +795,15 @@ app.get('/api/caravanas', autenticado, async (req, res) => {
       where += ' AND c.data_saida > ?';
       params.push(agoraSP());
     }
-    const [rows] = await pool.query(`${SELECT_CARAVANA}${where} ORDER BY c.data_saida`, params);
+
+    // Prioriza o time pelo qual o usuário torce
+    let orderBy = 'c.data_saida';
+    const torcida = (req.usuario.time_torcida || '').trim();
+    if (torcida) {
+      orderBy = `(CASE WHEN e.nome LIKE ${pool.escape('%' + torcida + '%')} THEN 0 ELSE 1 END), c.data_saida`;
+    }
+
+    const [rows] = await pool.query(`${SELECT_CARAVANA}${where} ORDER BY ${orderBy}`, params);
 
     const visiveis = rows.filter(r => visivelPara(r, req.usuario));
     const exclusivasPro = req.usuario.pro ? 0 : rows.filter(r =>
@@ -803,7 +813,8 @@ app.get('/api/caravanas', autenticado, async (req, res) => {
     res.json({
       caravanas: visiveis.map(montarCaravana),
       exclusivas_pro_ocultas: exclusivasPro,
-      antecedencia_pro_dias: ANTECEDENCIA_PRO_DIAS
+      antecedencia_pro_dias: ANTECEDENCIA_PRO_DIAS,
+      time_torcida: torcida
     });
   } catch (err) {
     console.error('[Caravanas] Erro ao listar:', err);
@@ -1009,7 +1020,12 @@ function validarEvento(d) {
 }
 
 app.get('/api/eventos', autenticado, async (req, res) => {
-  const [rows] = await pool.query('SELECT * FROM eventos ORDER BY data_evento');
+  const [rows] = await pool.query(`
+    SELECT e.*, te.nome AS tipo, te.somente_admin
+      FROM eventos e
+      JOIN tipos_evento te ON te.id = e.tipo_evento_id
+     ORDER BY e.data_evento
+  `);
   res.json(rows);
 });
 
@@ -1022,10 +1038,12 @@ app.post('/api/eventos', somenteOrganizador, async (req, res) => {
     return res.status(403).json({ error: 'Apenas administradores podem cadastrar corridas de Fórmula 1.' });
   }
 
+  const tipoEventoId = MAPA_TIPOS[dados.tipo] || 1;
+
   try {
     const [r] = await pool.query(
-      'INSERT INTO eventos (tipo, nome, local, pais, data_evento, criado_por, valor_ingresso) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [dados.tipo, dados.nome, dados.local, dados.pais, dados.data_evento, req.usuario.id, dados.valor_ingresso]
+      'INSERT INTO eventos (tipo_evento_id, nome, local, pais, data_evento, criado_por, valor_ingresso) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [tipoEventoId, dados.nome, dados.local, dados.pais, dados.data_evento, req.usuario.id, dados.valor_ingresso]
     );
     await registrarAuditoria(req.usuario.id, 'evento_criado', `Evento #${r.insertId} (${dados.tipo}): ${dados.nome}`, getClientIp(req));
     res.status(201).json({ id: r.insertId });
@@ -1038,13 +1056,19 @@ app.post('/api/eventos', somenteOrganizador, async (req, res) => {
 });
 
 app.put('/api/eventos/:id', somenteAdmin, async (req, res) => {
-  const [[atual]] = await pool.query('SELECT * FROM eventos WHERE id = ?', [req.params.id]);
+  const [[atual]] = await pool.query(`
+    SELECT e.*, te.nome AS tipo
+      FROM eventos e
+      JOIN tipos_evento te ON te.id = e.tipo_evento_id
+     WHERE e.id = ?
+  `, [req.params.id]);
   if (!atual) return res.status(404).json({ error: 'Evento não encontrado.' });
   const { dados, erros } = validarEvento({ ...atual, ...req.body });
   if (erros.length) return res.status(400).json({ error: erros.join(' ') });
+  const tipoEventoId = MAPA_TIPOS[dados.tipo] || 1;
   await pool.query(
-    'UPDATE eventos SET tipo=?, nome=?, local=?, pais=?, data_evento=?, valor_ingresso=? WHERE id = ?',
-    [dados.tipo, dados.nome, dados.local, dados.pais, dados.data_evento, dados.valor_ingresso, req.params.id]
+    'UPDATE eventos SET tipo_evento_id=?, nome=?, local=?, pais=?, data_evento=?, valor_ingresso=? WHERE id = ?',
+    [tipoEventoId, dados.nome, dados.local, dados.pais, dados.data_evento, dados.valor_ingresso, req.params.id]
   );
   await registrarAuditoria(req.usuario.id, 'evento_editado', `Evento #${req.params.id}: ${dados.nome}`, getClientIp(req));
   res.json({ message: 'Evento atualizado.' });
@@ -1114,10 +1138,11 @@ app.post('/api/futebol/importar', somenteOrganizador, async (req, res) => {
     const dataEvento = p.data_iso ? p.data_iso.slice(0, 10) : (String(req.body.data_evento || '').slice(0, 10) || hojeSP());
 
     const [r] = await pool.query(
-      `INSERT INTO eventos (tipo, nome, local, pais, data_evento, criado_por, valor_ingresso, api_partida_id, escudo_mandante, escudo_visitante)
-       VALUES ('futebol', ?, ?, 'Brasil', ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO eventos (tipo_evento_id, nome, local, pais, data_evento, competicao, criado_por, valor_ingresso, api_partida_id, escudo_mandante, escudo_visitante)
+       VALUES (1, ?, ?, 'Brasil', ?, ?, ?, ?, ?, ?, ?)`,
       [`${p.mandante} x ${p.visitante}`, p.estadio || String(req.body.local || 'Estádio a definir').trim(),
-       dataEvento, req.usuario.id, Number(req.body.valor_ingresso) || 0,
+       dataEvento, p.campeonato || 'Campeonato Brasileiro - Série A',
+       req.usuario.id, Number(req.body.valor_ingresso) || 0,
        partidaId, p.escudo_mandante, p.escudo_visitante]
     );
     await registrarAuditoria(req.usuario.id, 'evento_importado_api',
@@ -1130,21 +1155,219 @@ app.post('/api/futebol/importar', somenteOrganizador, async (req, res) => {
   }
 });
 
+// Cache e lista de times da Série A (com fallback em caso de limite na API)
+let cacheTimesSerieA = null;
+let cacheTimesTimestamp = 0;
+
+const FALLBACK_TIMES_SERIE_A = [
+  { nome: 'Santos', sigla: 'SAN', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc70845348.svg' },
+  { nome: 'Palmeiras', sigla: 'PAL', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc746b0687.svg' },
+  { nome: 'Corinthians', sigla: 'COR', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc70b8982a.svg' },
+  { nome: 'São Paulo', sigla: 'SAO', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc740c034b.svg' },
+  { nome: 'Flamengo', sigla: 'FLA', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc73fcec1e.svg' },
+  { nome: 'Vasco', sigla: 'VAS', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc702ef04f.svg' },
+  { nome: 'Fluminense', sigla: 'FLU', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc741d4fa4.svg' },
+  { nome: 'Botafogo', sigla: 'BOT', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc7007e0c8.svg' },
+  { nome: 'Grêmio', sigla: 'GRE', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc74499092.svg' },
+  { nome: 'Internacional', sigla: 'INT', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc7479eb11.svg' },
+  { nome: 'Cruzeiro', sigla: 'CRU', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc7451529e.svg' },
+  { nome: 'Atlético-MG', sigla: 'CAM', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc7097c271.svg' },
+  { nome: 'Bahia', sigla: 'BAH', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc70a836be.svg' },
+  { nome: 'Fortaleza', sigla: 'FOR', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc743013b5.svg' },
+  { nome: 'Athletico-PR', sigla: 'CAP', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc70c9fafe.svg' },
+  { nome: 'Vitória', sigla: 'VIT', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc74855410.svg' },
+  { nome: 'Red Bull Bragantino', sigla: 'RBB', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc73eaeb1e.svg' },
+  { nome: 'Juventude', sigla: 'JUV', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc82cb9716.svg' },
+  { nome: 'Criciúma', sigla: 'CRI', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc701831c4.svg' },
+  { nome: 'Mirassol', sigla: 'MIR', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc831214bd.svg' }
+];
+
+app.get('/api/futebol/serie-a-times', async (req, res) => {
+  if (cacheTimesSerieA && Date.now() - cacheTimesTimestamp < 3600000) {
+    return res.json(cacheTimesSerieA);
+  }
+  try {
+    const { data } = await futebolApi.get('/campeonatos/10/tabela');
+    if (Array.isArray(data) && data.length > 0) {
+      cacheTimesSerieA = data.map(item => ({
+        time_id: item.time?.time_id,
+        nome: item.time?.nome_popular || item.time?.nome,
+        sigla: item.time?.sigla,
+        escudo: item.time?.escudo
+      }));
+      cacheTimesTimestamp = Date.now();
+      return res.json(cacheTimesSerieA);
+    }
+  } catch (err) {
+    console.warn('[API Futebol] Fallback tabela times:', err.message);
+  }
+  cacheTimesSerieA = FALLBACK_TIMES_SERIE_A;
+  res.json(cacheTimesSerieA);
+});
+
+const FALLBACK_JOGOS_SERIE_A = [
+  {
+    partida_id: 1001,
+    campeonato: 'Campeonato Brasileiro - Série A',
+    mandante: 'Palmeiras',
+    visitante: 'Corinthians',
+    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc8340d87e.svg',
+    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc708b776f.svg',
+    data_iso: '2026-11-22T16:00:00Z',
+    estadio: 'Allianz Parque',
+    status: 'agendado'
+  },
+  {
+    partida_id: 1002,
+    campeonato: 'Campeonato Brasileiro - Série A',
+    mandante: 'Santos',
+    visitante: 'São Paulo',
+    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc8455e1bf.svg',
+    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc8488e085.svg',
+    data_iso: '2026-11-23T18:30:00Z',
+    estadio: 'Vila Belmiro',
+    status: 'agendado'
+  },
+  {
+    partida_id: 1003,
+    campeonato: 'Campeonato Brasileiro - Série A',
+    mandante: 'Flamengo',
+    visitante: 'Fluminense',
+    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc73f08960.svg',
+    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc80e9a7e1.svg',
+    data_iso: '2026-11-23T21:00:00Z',
+    estadio: 'Maracanã',
+    status: 'agendado'
+  },
+  {
+    partida_id: 1004,
+    campeonato: 'Campeonato Brasileiro - Série A',
+    mandante: 'Atlético-MG',
+    visitante: 'Cruzeiro',
+    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc6d6118d3.svg',
+    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc7199fa68.svg',
+    data_iso: '2026-11-24T16:00:00Z',
+    estadio: 'Arena MRV',
+    status: 'agendado'
+  },
+  {
+    partida_id: 1005,
+    campeonato: 'Campeonato Brasileiro - Série A',
+    mandante: 'Internacional',
+    visitante: 'Grêmio',
+    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc824ab742.svg',
+    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc81e285ee.svg',
+    data_iso: '2026-11-24T18:30:00Z',
+    estadio: 'Beira-Rio',
+    status: 'agendado'
+  },
+  {
+    partida_id: 1006,
+    campeonato: 'Campeonato Brasileiro - Série A',
+    mandante: 'Botafogo',
+    visitante: 'Vasco da Gama',
+    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc6eb823ba.svg',
+    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc84ebc9b8.svg',
+    data_iso: '2026-11-25T20:00:00Z',
+    estadio: 'Nilton Santos',
+    status: 'agendado'
+  }
+];
+
+// Jogos da rodada da Série A com status de caravana (se não tiver caravana: sem ingressos disponíveis)
+app.get('/api/futebol/serie-a-jogos', async (req, res) => {
+  let partidas = [];
+  let rodadaNome = '38ª Rodada';
+
+  try {
+    const { data: camp } = await futebolApi.get('/campeonatos/10');
+    const rodada = camp.rodada_atual?.rodada || 38;
+    const { data: rodadaData } = await futebolApi.get(`/campeonatos/10/rodadas/${rodada}`);
+    partidas = (rodadaData.partidas || []).map(mapearPartida);
+    rodadaNome = rodadaData.nome || `Rodada ${rodada}`;
+  } catch (err) {
+    console.warn('[API Futebol] Fallback serie-a-jogos:', err.message);
+    partidas = FALLBACK_JOGOS_SERIE_A;
+  }
+
+  try {
+    // Cruzar cada partida com as caravanas cadastradas no banco
+    const jogosComCaravana = await Promise.all(partidas.map(async (p) => {
+      let c = null;
+      try {
+        const [rows] = await pool.query(`
+          SELECT c.id, c.preco, c.vagas_totais, c.cidade_saida, c.local_saida, c.data_saida, c.status,
+                 (SELECT COUNT(*) FROM reservas r WHERE r.caravana_id = c.id AND r.status_pagamento <> 'cancelado') AS ocupados
+            FROM caravanas c
+            JOIN eventos e ON e.id = c.evento_id
+           WHERE e.api_partida_id = ? OR e.nome LIKE ?
+           LIMIT 1
+        `, [p.partida_id, `%${p.mandante}%${p.visitante}%`]);
+        c = rows[0];
+      } catch (dbErr) {
+        console.warn('[Jogos DB error]:', dbErr.message);
+      }
+
+      const temCaravana = Boolean(c && c.status !== 'cancelada');
+      return {
+        ...p,
+        competicao: 'Campeonato Brasileiro - Série A',
+        rodada_nome: rodadaNome,
+        tem_caravana: temCaravana,
+        caravana: temCaravana ? {
+          id: c.id,
+          preco: Number(c.preco),
+          cidade_saida: c.cidade_saida,
+          local_saida: c.local_saida,
+          data_saida: c.data_saida,
+          status: c.status,
+          vagas_livres: Math.max(0, Number(c.vagas_totais) - Number(c.ocupados || 0))
+        } : null
+      };
+    }));
+
+    res.json({
+      competicao: 'Campeonato Brasileiro - Série A',
+      rodada_nome: rodadaNome,
+      jogos: jogosComCaravana
+    });
+  } catch (err) {
+    console.error('[API Futebol] serie-a-jogos final error:', err.message);
+    res.status(500).json({ error: 'Erro ao montar lista de jogos.' });
+  }
+});
+
+// Atualizar preferência de time / atleta da conta
+app.put('/api/perfil/time', autenticado, async (req, res) => {
+  const time = String(req.body.time_torcida || '').trim().slice(0, 100);
+  try {
+    await pool.query('UPDATE contas SET time_torcida = ? WHERE id = ?', [time || null, req.usuario.id]);
+    if (req.session.usuario) req.session.usuario.time_torcida = time || null;
+    req.usuario.time_torcida = time || null;
+    await registrarAuditoria(req.usuario.id, 'time_atualizado', `Time definido: ${time || 'nenhum'}`, getClientIp(req));
+    res.json({ ok: true, time_torcida: time || null });
+  } catch (err) {
+    console.error('Erro ao atualizar time:', err);
+    res.status(500).json({ error: 'Erro ao salvar preferência de time.' });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // RESERVAS (passageiro free OU premium). Cada usuário só vê e altera as próprias.
 // ─────────────────────────────────────────────────────────────────────────────
 const SELECT_RESERVA = `
   SELECT r.*, c.cidade_saida, c.local_saida, c.data_saida, c.status AS caravana_status, c.preco AS caravana_preco,
-         e.nome AS evento_nome, e.tipo AS evento_tipo, e.local AS evento_local, e.data_evento,
-         e.valor_ingresso, e.escudo_mandante, e.escudo_visitante,
+         e.nome AS evento_nome, te.nome AS evento_tipo, e.local AS evento_local, e.data_evento,
+         e.competicao, e.valor_ingresso, e.escudo_mandante, e.escudo_visitante,
          cp.codigo AS cupom_codigo,
          COALESCE(r.usuario_premium_id, r.usuario_free_id) AS dono_id,
          u.nome AS passageiro_nome, u.email AS passageiro_email
     FROM reservas r
-    JOIN caravanas c ON c.id = r.caravana_id
-    JOIN eventos e   ON e.id = c.evento_id
-    JOIN contas u    ON u.id = COALESCE(r.usuario_premium_id, r.usuario_free_id)
-    LEFT JOIN cupons cp ON cp.id = r.cupom_id`;
+    JOIN caravanas c     ON c.id = r.caravana_id
+    JOIN eventos e       ON e.id = c.evento_id
+    JOIN tipos_evento te ON te.id = e.tipo_evento_id
+    JOIN contas u        ON u.id = COALESCE(r.usuario_premium_id, r.usuario_free_id)
+    LEFT JOIN cupons cp  ON cp.id = r.cupom_id`;
 
 app.get('/api/reservas', autenticado, async (req, res) => {
   try {
@@ -1458,6 +1681,35 @@ app.put('/api/admin/usuarios/:id/papel', somenteAdmin, async (req, res) => {
     res.json(data);
   } catch (err) {
     res.status(err.response?.status || 500).json(err.response?.data || { error: 'Erro ao alterar papel.' });
+  }
+});
+
+// Promover usuário para Pro diretamente pelo Admin (com 1 clique)
+app.post('/api/admin/usuarios/:id/promover-pro', somenteAdmin, async (req, res) => {
+  const alvoId = Number(req.params.id);
+  try {
+    await pool.query(
+      `INSERT INTO usuarios_premium (conta_id, ativo) VALUES (?, 1)
+       ON DUPLICATE KEY UPDATE ativo = 1`, [alvoId]
+    );
+    await registrarAuditoria(req.usuario.id, 'promover_pro', `Admin promoveu conta #${alvoId} para Pro`, getClientIp(req));
+    res.json({ message: 'Usuário promovido para Pro com sucesso!' });
+  } catch (err) {
+    console.error('Erro ao promover Pro:', err);
+    res.status(500).json({ error: 'Erro ao promover usuário para Pro.' });
+  }
+});
+
+// Remover status Pro de um usuário pelo Admin
+app.post('/api/admin/usuarios/:id/remover-pro', somenteAdmin, async (req, res) => {
+  const alvoId = Number(req.params.id);
+  try {
+    await pool.query('UPDATE usuarios_premium SET ativo = 0 WHERE conta_id = ?', [alvoId]);
+    await registrarAuditoria(req.usuario.id, 'remover_pro', `Admin desativou Pro da conta #${alvoId}`, getClientIp(req));
+    res.json({ message: 'Plano Pro desativado para o usuário.' });
+  } catch (err) {
+    console.error('Erro ao desativar Pro:', err);
+    res.status(500).json({ error: 'Erro ao desativar Pro do usuário.' });
   }
 });
 

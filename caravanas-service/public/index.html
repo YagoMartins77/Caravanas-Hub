@@ -15,6 +15,7 @@
       <div class="nav-links">
         <a href="#como-funciona">Como funciona</a>
         <a href="#modalidades">Modalidades</a>
+        <a href="#jogos-serie-a">Brasileirão</a>
         <a href="#planos">Planos</a>
         <a href="#regiao">Região</a>
       </div>
@@ -120,7 +121,24 @@
     </div>
   </section>
 
-  <section class="block" id="planos">
+  <!-- ═══ PRÓXIMOS JOGOS BRASILEIRÃO SÉRIE A ═══ -->
+  <section class="block" id="jogos-serie-a">
+    <div class="container">
+      <div class="section-head">
+        <span class="badge badge-futebol" style="margin-bottom:.6rem;display:inline-block;"><i class="fas fa-futbol"></i> Campeonato Oficial</span>
+        <h2>Próximos Jogos — Brasileirão Série A</h2>
+        <p id="subtituloJogos">Acompanhe os confrontos oficiais da API Futebol e saiba em tempo real quais partidas já contam com caravana saindo da Alta Paulista.</p>
+      </div>
+      <div id="gridJogosSerieA" class="jogos-grid">
+        <div style="grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 3rem 1rem;">
+          <i class="fas fa-spinner fa-spin fa-2x"></i>
+          <p style="margin-top: .8rem;">Carregando jogos oficiais do Brasileirão...</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block alt" id="planos">
     <div class="container">
       <div class="section-head">
         <h2>Free ou Pro: você escolhe</h2>
@@ -153,7 +171,7 @@
     </div>
   </section>
 
-  <section class="block alt">
+  <section class="block">
     <div class="container">
       <div class="section-head">
         <h2>Preço justo e transparente</h2>
@@ -166,7 +184,7 @@
     </div>
   </section>
 
-  <section class="block" id="regiao">
+  <section class="block alt" id="regiao">
     <div class="container">
       <div class="section-head">
         <h2>Só para a Alta Paulista</h2>
@@ -188,12 +206,492 @@
     <div class="container">
       <span>© 2026 Caravana's Hub · Projeto acadêmico ISW055 · Prof. <a href="https://github.com/siriani" target="_blank" rel="noopener">@siriani</a></span>
       <span>Dados de futebol: <a href="https://www.api-futebol.com.br" target="_blank" rel="noopener">API Futebol</a></span>
+      <span>Console Admin: pressione <kbd style="background:var(--bg-2);padding:.2rem .45rem;border-radius:4px;border:1px solid var(--line);font-size:.75rem;color:var(--green);font-weight:700;">F2</kbd></span>
     </div>
   </footer>
 
+  <!-- ═══ MODAL F2 (CONSOLE ADMIN FLUTUANTE) ═══ -->
+  <div id="modalF2" class="modal-f2">
+    <div class="box-f2">
+      <span class="badge-f2"><i class="fas fa-terminal"></i> CONSOLE ADMIN (F2)</span>
+      <button class="modal-close" id="btnFecharF2" style="position:absolute;top:1.2rem;right:1.2rem;background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;" title="Fechar (Esc)">
+        <i class="fas fa-xmark"></i>
+      </button>
+      <div id="f2Container" style="margin-top:.8rem;"></div>
+    </div>
+  </div>
+
   <script>
-    // Quem já está logado vai direto para o app
-    fetch('/api/auth/me').then(r => { if (r.ok) document.querySelectorAll('a[href^="auth.html"]').forEach(a => { a.href = 'app.html'; }); });
+    'use strict';
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const brl = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    function dataBR(s) {
+      if (!s) return '-';
+      const [d, h = ''] = String(s).replace('T', ' ').split(' ');
+      const [y, m, dia] = d.split('-');
+      return `${dia}/${m}/${y}${h ? ' ' + h.slice(0, 5) : ''}`;
+    }
+
+    // Se já estiver logado, ajusta os botões para abrir o app
+    fetch('/api/auth/me').then(r => {
+      if (r.ok) {
+        document.querySelectorAll('a[href^="auth.html"]').forEach(a => { a.href = 'app.html'; });
+      }
+    });
+
+    // ─── CARREGAR JOGOS DA SÉRIE A ──────────────────────────────
+    async function carregarJogosSerieA() {
+      const grid = document.getElementById('gridJogosSerieA');
+      try {
+        const res = await fetch('/api/futebol/serie-a-jogos');
+        if (!res.ok) throw new Error('Não foi possível carregar os jogos no momento.');
+        const data = await res.json();
+        const jogos = data.jogos || [];
+        if (data.rodada_nome) {
+          document.getElementById('subtituloJogos').textContent =
+            `${data.competicao} (${data.rodada_nome}) — Confrontos oficiais da API Futebol com status de caravana saindo da Alta Paulista.`;
+        }
+
+        if (!jogos.length) {
+          grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 2rem;">Nenhum jogo encontrado para esta rodada.</div>';
+          return;
+        }
+
+        grid.innerHTML = jogos.map(j => {
+          const statusCaravana = j.tem_caravana
+            ? `
+              <div style="margin-top:.8rem;padding-top:.8rem;border-top:1px solid var(--line);">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span class="badge badge-ok"><i class="fas fa-check-circle"></i> Caravana confirmada</span>
+                  <strong style="color:var(--green);font-size:1.05rem;">${brl(j.caravana.preco)}</strong>
+                </div>
+                <div class="small muted" style="margin:.4rem 0;"><i class="fas fa-location-dot"></i> Saída de <strong>${esc(j.caravana.cidade_saida)}</strong> · ${j.caravana.vagas_livres} vagas restantes</div>
+                <a href="app.html" class="btn btn-primary btn-sm" style="width:100%;text-align:center;display:block;margin-top:.4rem;"><i class="fas fa-ticket"></i> Ver Caravana e Reservar</a>
+              </div>`
+            : `
+              <div style="margin-top:.8rem;padding-top:.8rem;border-top:1px solid var(--line);">
+                <span class="badge badge-sem-caravana" style="display:block;text-align:center;padding:.5rem;border-radius:10px;font-size:.82rem;font-weight:600;">
+                  <i class="fas fa-circle-exclamation"></i> Sem ingressos/caravana disponível para este evento
+                </span>
+              </div>`;
+
+          return `
+            <div class="jogo-card">
+              <div class="jogo-header">
+                <span><i class="fas fa-trophy" style="color:var(--green)"></i> ${esc(j.competicao || 'Brasileirão Série A')}</span>
+                <span><i class="fas fa-calendar-day"></i> ${dataBR(j.data_iso)}</span>
+              </div>
+              <div class="jogo-placar">
+                <div class="jogo-time">
+                  ${j.escudo_mandante ? `<img src="${esc(j.escudo_mandante)}" alt="${esc(j.mandante)}">` : '<i class="fas fa-shield fa-2x"></i>'}
+                  <span>${esc(j.mandante)}</span>
+                </div>
+                <div class="jogo-vs">VS</div>
+                <div class="jogo-time">
+                  ${j.escudo_visitante ? `<img src="${esc(j.escudo_visitante)}" alt="${esc(j.visitante)}">` : '<i class="fas fa-shield fa-2x"></i>'}
+                  <span>${esc(j.visitante)}</span>
+                </div>
+              </div>
+              <div class="jogo-info">
+                <span><i class="fas fa-location-dot"></i> Estádio: <strong>${esc(j.estadio || 'A definir')}</strong></span>
+              </div>
+              ${statusCaravana}
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 2rem;"><i class="fas fa-exclamation-triangle" style="color:#f87171"></i> ${esc(err.message)}</div>`;
+      }
+    }
+    carregarJogosSerieA();
+
+    // ─── ATALHO F2 / MODAL ADMIN (EXCLUSIVO DA HOME) ───────────
+    const modalF2 = document.getElementById('modalF2');
+    const f2Container = document.getElementById('f2Container');
+    document.getElementById('btnFecharF2').addEventListener('click', fecharF2);
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'F2') {
+        e.preventDefault();
+        toggleF2();
+      }
+      if (e.key === 'Escape' && modalF2.classList.contains('open')) {
+        fecharF2();
+      }
+    });
+
+    function toggleF2() {
+      if (modalF2.classList.contains('open')) fecharF2();
+      else abrirF2();
+    }
+
+    function fecharF2() {
+      modalF2.classList.remove('open');
+    }
+
+    async function abrirF2() {
+      modalF2.classList.add('open');
+      f2Container.innerHTML = '<div style="text-align:center;padding:2rem;"><i class="fas fa-spinner fa-spin fa-2x"></i><p style="margin-top:.8rem;">Verificando credenciais...</p></div>';
+      try {
+        const res = await fetch('/api/auth/me');
+        if (res.ok) {
+          const user = await res.json();
+          if (user.papel === 'admin') {
+            renderConsoleAdminF2(user);
+            return;
+          }
+        }
+        renderLoginAdminF2();
+      } catch (err) {
+        renderLoginAdminF2();
+      }
+    }
+
+    // Formulário de Login do Admin com atalho para preencher Root
+    function renderLoginAdminF2() {
+      f2Container.innerHTML = `
+        <div style="max-width:440px;margin:0 auto;text-align:left;">
+          <h2 style="margin-bottom:.4rem;display:flex;align-items:center;gap:.6rem;">
+            <i class="fas fa-lock" style="color:var(--green)"></i> Acesso de Administrador
+          </h2>
+          <p class="muted small" style="margin-bottom:1.4rem;">
+            Atalho F2 exclusivo para administração da plataforma Caravanas Hub.
+          </p>
+
+          <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);border-radius:12px;padding:.9rem;margin-bottom:1.2rem;display:flex;justify-content:space-between;align-items:center;">
+            <div style="font-size:.85rem;">
+              <strong>Ambiente de Avaliação:</strong><br>
+              <span class="muted">root@caravanashub.com.br / 123456</span>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" id="btnPreencherRoot" style="font-size:.78rem;">
+              <i class="fas fa-wand-magic-sparkles"></i> Preencher
+            </button>
+          </div>
+
+          <form id="f2LoginForm" style="display:flex;flex-direction:column;gap:1rem;">
+            <div>
+              <label style="display:block;font-size:.85rem;margin-bottom:.3rem;color:var(--muted);">E-mail do Administrador</label>
+              <input type="email" id="f2Email" required placeholder="admin@caravanashub.com.br" style="width:100%;padding:.75rem;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;color:var(--text);">
+            </div>
+            <div>
+              <label style="display:block;font-size:.85rem;margin-bottom:.3rem;color:var(--muted);">Senha</label>
+              <input type="password" id="f2Senha" required placeholder="Sua senha de admin" style="width:100%;padding:.75rem;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;color:var(--text);">
+            </div>
+            <button type="submit" class="btn btn-primary" id="btnSubmitF2Login" style="width:100%;margin-top:.4rem;">
+              <i class="fas fa-right-to-bracket"></i> Entrar no Console
+            </button>
+          </form>
+          <div id="f2LoginMsg" style="margin-top:1rem;font-size:.85rem;display:none;"></div>
+        </div>
+      `;
+
+      document.getElementById('btnPreencherRoot').addEventListener('click', () => {
+        document.getElementById('f2Email').value = 'root@caravanashub.com.br';
+        document.getElementById('f2Senha').value = '123456';
+      });
+
+      document.getElementById('f2LoginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('btnSubmitF2Login');
+        const msg = document.getElementById('f2LoginMsg');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Entrando...';
+        msg.style.display = 'none';
+
+        try {
+          const email = document.getElementById('f2Email').value.trim();
+          const senha = document.getElementById('f2Senha').value;
+          const r = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, senha })
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || 'Credenciais inválidas.');
+
+          // Confirma se é admin
+          const meRes = await fetch('/api/auth/me');
+          const me = await meRes.json();
+          if (me.papel !== 'admin') {
+            throw new Error('Esta conta não possui privilégios de administrador.');
+          }
+          renderConsoleAdminF2(me);
+        } catch (err) {
+          msg.textContent = err.message;
+          msg.style.display = 'block';
+          msg.style.color = '#f87171';
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-right-to-bracket"></i> Entrar no Console';
+        }
+      });
+    }
+
+    // Console Rápido de Ações do Administrador
+    function renderConsoleAdminF2(user) {
+      f2Container.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:1rem;margin-bottom:1.2rem;flex-wrap:wrap;gap:.8rem;">
+          <div>
+            <h2 style="font-size:1.3rem;margin:0;"><i class="fas fa-gauge-high" style="color:var(--green)"></i> Painel Rápido F2</h2>
+            <span class="muted small">Conectado como <strong>${esc(user.nome)}</strong> (${esc(user.email)})</span>
+          </div>
+          <div style="display:flex;gap:.6rem;align-items:center;">
+            <a href="app.html" class="btn btn-primary btn-sm"><i class="fas fa-arrow-up-right-from-square"></i> Abrir Painel Completo</a>
+            <button class="btn btn-ghost btn-sm" id="btnDeslogarF2" title="Desconectar"><i class="fas fa-power-off"></i></button>
+          </div>
+        </div>
+
+        <div class="tabs" style="display:flex;gap:.5rem;margin-bottom:1.2rem;overflow-x:auto;">
+          <button class="chip active f2-tab" data-f2tab="tab-logs"><i class="fas fa-clock-rotate-left"></i> Auditoria / Logs</button>
+          <button class="chip f2-tab" data-f2tab="tab-promover"><i class="fas fa-bolt"></i> 1-Click Pro</button>
+          <button class="chip f2-tab" data-f2tab="tab-evento"><i class="fas fa-calendar-plus"></i> Criar Evento</button>
+          <button class="chip f2-tab" data-f2tab="tab-cupom"><i class="fas fa-tag"></i> Gerar Cupom</button>
+        </div>
+
+        <div id="f2TabContent"></div>
+      `;
+
+      document.getElementById('btnDeslogarF2').addEventListener('click', async () => {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        renderLoginAdminF2();
+      });
+
+      document.querySelectorAll('.f2-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.f2-tab').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          carregarAbaF2(btn.dataset.f2tab);
+        });
+      });
+
+      carregarAbaF2('tab-logs');
+    }
+
+    async function carregarAbaF2(tab) {
+      const el = document.getElementById('f2TabContent');
+      if (tab === 'tab-logs') {
+        el.innerHTML = '<div style="text-align:center;padding:1.5rem;"><i class="fas fa-spinner fa-spin"></i> Carregando logs de auditoria...</div>';
+        try {
+          const res = await fetch('/api/logs?limit=30');
+          const logs = await res.json();
+          if (!logs.length) { el.innerHTML = '<p class="muted">Nenhum evento registrado ainda.</p>'; return; }
+          el.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;">
+              <span class="muted small">Últimos eventos gravados no microsserviço de auditoria (Redis):</span>
+              <button class="btn btn-ghost btn-sm" id="btnAtualizarLogsF2"><i class="fas fa-rotate"></i> Atualizar</button>
+            </div>
+            <div style="max-height:360px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;">
+              <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                <thead style="background:var(--bg-2);text-align:left;position:sticky;top:0;">
+                  <tr>
+                    <th style="padding:.6rem .8rem;">Data/Hora</th>
+                    <th style="padding:.6rem .8rem;">Ação</th>
+                    <th style="padding:.6rem .8rem;">Detalhes</th>
+                    <th style="padding:.6rem .8rem;">IP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${logs.map(l => `
+                    <tr style="border-top:1px solid var(--line);">
+                      <td style="padding:.6rem .8rem;white-space:nowrap;color:var(--muted);">${esc(l.criado_em || l.timestamp || '-')}</td>
+                      <td style="padding:.6rem .8rem;"><span class="badge badge-admin" style="font-size:.72rem;">${esc(l.acao)}</span></td>
+                      <td style="padding:.6rem .8rem;">${esc(l.detalhes)}</td>
+                      <td style="padding:.6rem .8rem;color:var(--muted);font-family:monospace;">${esc(l.ip || '-')}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `;
+          document.getElementById('btnAtualizarLogsF2').addEventListener('click', () => carregarAbaF2('tab-logs'));
+        } catch (err) {
+          el.innerHTML = `<p class="muted" style="color:#f87171;">Erro ao carregar logs: ${esc(err.message)}</p>`;
+        }
+      } else if (tab === 'tab-promover') {
+        el.innerHTML = '<div style="text-align:center;padding:1.5rem;"><i class="fas fa-spinner fa-spin"></i> Carregando usuários...</div>';
+        try {
+          const res = await fetch('/api/admin/usuarios');
+          const usuarios = await res.json();
+          el.innerHTML = `
+            <div style="margin-bottom:.8rem;" class="muted small">
+              Promova passageiros para o plano <strong>Pro</strong> com apenas um clique para liberar antecedência e sorteios.
+            </div>
+            <div style="max-height:360px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;">
+              <table style="width:100%;border-collapse:collapse;font-size:.85rem;">
+                <thead style="background:var(--bg-2);text-align:left;position:sticky;top:0;">
+                  <tr>
+                    <th style="padding:.6rem .8rem;">ID</th>
+                    <th style="padding:.6rem .8rem;">Nome / E-mail</th>
+                    <th style="padding:.6rem .8rem;">Papel</th>
+                    <th style="padding:.6rem .8rem;">Plano</th>
+                    <th style="padding:.6rem .8rem;text-align:right;">Ação 1-Click</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${usuarios.map(u => {
+                    const isPro = u.premium == 1;
+                    return `
+                      <tr style="border-top:1px solid var(--line);">
+                        <td style="padding:.6rem .8rem;color:var(--muted);">#${u.id}</td>
+                        <td style="padding:.6rem .8rem;">
+                          <strong>${esc(u.nome)}</strong><br>
+                          <span class="muted small">${esc(u.email)}</span>
+                        </td>
+                        <td style="padding:.6rem .8rem;"><span class="badge" style="font-size:.72rem;">${esc(u.papel || u.role)}</span></td>
+                        <td style="padding:.6rem .8rem;">
+                          ${isPro ? '<span class="badge badge-pro"><i class="fas fa-crown"></i> Pro</span>' : '<span class="badge">Free</span>'}
+                        </td>
+                        <td style="padding:.6rem .8rem;text-align:right;">
+                          ${isPro
+                            ? `<button class="btn btn-ghost btn-sm" onclick="acaoTogglePro(${u.id}, false)" style="font-size:.75rem;color:#f87171;"><i class="fas fa-ban"></i> Desativar</button>`
+                            : `<button class="btn btn-primary btn-sm" onclick="acaoTogglePro(${u.id}, true)" style="font-size:.75rem;"><i class="fas fa-bolt"></i> Promover Pro</button>`}
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          `;
+        } catch (err) {
+          el.innerHTML = `<p class="muted" style="color:#f87171;">Erro ao carregar usuários: ${esc(err.message)}</p>`;
+        }
+      } else if (tab === 'tab-evento') {
+        el.innerHTML = `
+          <form id="formNovoEventoF2" style="display:flex;flex-direction:column;gap:.9rem;max-width:540px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:.8rem;">
+              <div>
+                <label style="display:block;font-size:.8rem;margin-bottom:.3rem;color:var(--muted);">Modalidade</label>
+                <select id="evTipo" style="width:100%;padding:.65rem;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;color:var(--text);">
+                  <option value="1">Futebol</option>
+                  <option value="2">Fórmula 1 (Exclusivo Admin)</option>
+                  <option value="3">MMA / Luta</option>
+                </select>
+              </div>
+              <div>
+                <label style="display:block;font-size:.8rem;margin-bottom:.3rem;color:var(--muted);">Data e Hora</label>
+                <input type="datetime-local" id="evData" required style="width:100%;padding:.65rem;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;color:var(--text);">
+              </div>
+            </div>
+            <div>
+              <label style="display:block;font-size:.8rem;margin-bottom:.3rem;color:var(--muted);">Nome do Evento</label>
+              <input type="text" id="evNome" placeholder="Ex.: Santos x Corinthians ou GP de São Paulo 2026" required style="width:100%;padding:.65rem;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;color:var(--text);">
+            </div>
+            <div>
+              <label style="display:block;font-size:.8rem;margin-bottom:.3rem;color:var(--muted);">Local / Estádio / Autódromo</label>
+              <input type="text" id="evLocal" placeholder="Ex.: Vila Belmiro, Santos - SP" required style="width:100%;padding:.65rem;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;color:var(--text);">
+            </div>
+            <button type="submit" class="btn btn-primary" style="margin-top:.4rem;"><i class="fas fa-check"></i> Criar Evento</button>
+            <div id="evMsg" style="font-size:.85rem;display:none;"></div>
+          </form>
+        `;
+        document.getElementById('formNovoEventoF2').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const msg = document.getElementById('evMsg');
+          try {
+            const body = {
+              tipo_evento_id: Number(document.getElementById('evTipo').value),
+              nome: document.getElementById('evNome').value.trim(),
+              local: document.getElementById('evLocal').value.trim(),
+              data_evento: document.getElementById('evData').value
+            };
+            const res = await fetch('/api/eventos', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro ao criar evento.');
+            msg.style.display = 'block';
+            msg.style.color = 'var(--green)';
+            msg.textContent = 'Evento criado com sucesso!';
+            document.getElementById('formNovoEventoF2').reset();
+          } catch (err) {
+            msg.style.display = 'block';
+            msg.style.color = '#f87171';
+            msg.textContent = err.message;
+          }
+        });
+      } else if (tab === 'tab-cupom') {
+        el.innerHTML = '<div style="text-align:center;padding:1.5rem;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
+        try {
+          const res = await fetch('/api/admin/usuarios');
+          const usuarios = await res.json();
+          const pros = usuarios.filter(u => u.premium == 1);
+          if (!pros.length) {
+            el.innerHTML = '<p class="muted">Nenhum usuário no plano Pro encontrado. Use a aba "1-Click Pro" para promover um usuário primeiro.</p>';
+            return;
+          }
+          el.innerHTML = `
+            <form id="formCupomF2" style="display:flex;flex-direction:column;gap:.9rem;max-width:540px;">
+              <div>
+                <label style="display:block;font-size:.8rem;margin-bottom:.3rem;color:var(--muted);">Usuário Pro Elegível</label>
+                <select id="cupomUsuario" style="width:100%;padding:.65rem;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;color:var(--text);">
+                  ${pros.map(p => `<option value="${p.id}">${esc(p.nome)} (${esc(p.email)})</option>`).join('')}
+                </select>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:.8rem;">
+                <div>
+                  <label style="display:block;font-size:.8rem;margin-bottom:.3rem;color:var(--muted);">Desconto (%)</label>
+                  <input type="number" id="cupomPct" min="5" max="50" value="15" required style="width:100%;padding:.65rem;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;color:var(--text);">
+                </div>
+                <div>
+                  <label style="display:block;font-size:.8rem;margin-bottom:.3rem;color:var(--muted);">Validade (dias)</label>
+                  <input type="number" id="cupomDias" min="1" max="180" value="60" required style="width:100%;padding:.65rem;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;color:var(--text);">
+                </div>
+              </div>
+              <div>
+                <label style="display:block;font-size:.8rem;margin-bottom:.3rem;color:var(--muted);">Descrição / Motivo</label>
+                <input type="text" id="cupomDesc" value="Cupom exclusivo Pro de fidelidade" required style="width:100%;padding:.65rem;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;color:var(--text);">
+              </div>
+              <button type="submit" class="btn btn-primary" style="margin-top:.4rem;"><i class="fas fa-gift"></i> Emitir Cupom</button>
+              <div id="cupomMsg" style="font-size:.85rem;display:none;"></div>
+            </form>
+          `;
+          document.getElementById('formCupomF2').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const msg = document.getElementById('cupomMsg');
+            try {
+              const body = {
+                usuario_id: Number(document.getElementById('cupomUsuario').value),
+                desconto_percentual: Number(document.getElementById('cupomPct').value),
+                dias_validade: Number(document.getElementById('cupomDias').value),
+                descricao: document.getElementById('cupomDesc').value.trim()
+              };
+              const r = await fetch('/api/admin/cupons', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+              });
+              const c = await r.json();
+              if (!r.ok) throw new Error(c.error || 'Erro ao gerar cupom.');
+              msg.style.display = 'block';
+              msg.style.color = 'var(--green)';
+              msg.innerHTML = `Cupom <strong>${esc(c.codigo)}</strong> (${c.desconto_percentual}%) gerado com sucesso!`;
+            } catch (err) {
+              msg.style.display = 'block';
+              msg.style.color = '#f87171';
+              msg.textContent = err.message;
+            }
+          });
+        } catch (err) {
+          el.innerHTML = `<p class="muted" style="color:#f87171;">Erro ao carregar Pro: ${esc(err.message)}</p>`;
+        }
+      }
+    }
+
+    // Ação global para 1-Click Pro
+    window.acaoTogglePro = async function(id, promover) {
+      const endpoint = promover ? `/api/admin/usuarios/${id}/promover-pro` : `/api/admin/usuarios/${id}/remover-pro`;
+      try {
+        const res = await fetch(endpoint, { method: 'POST' });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || 'Erro na operação.');
+        carregarAbaF2('tab-promover');
+      } catch (err) {
+        alert(err.message);
+      }
+    };
   </script>
 </body>
 </html>

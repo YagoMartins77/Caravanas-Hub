@@ -88,6 +88,20 @@ async function carregarMe() {
     `<span class="badge badge-${papel === 'admin' ? 'admin' : 'motorista'}">${papel === 'admin' ? 'Admin' : 'Organizador'}</span>`;
   $('#linkOrganizador').classList.toggle('hidden', !temPapel('organizador', 'admin'));
   $('#linkAdmin').classList.toggle('hidden', !temPapel('admin'));
+
+  // Atualiza botão do time/esporte no cabeçalho
+  const time = me.time_torcida;
+  const labelTime = $('#labelMeuTime');
+  const icoTime = $('#icoMeuTime');
+  if (labelTime) {
+    labelTime.textContent = time ? time : 'Meu Time';
+  }
+  if (icoTime) {
+    if (time && /corrida|f1|fórmula/i.test(time)) icoTime.className = 'fas fa-flag-checkered';
+    else if (time && /mma|luta/i.test(time)) icoTime.className = 'fas fa-hand-fist';
+    else icoTime.className = 'fas fa-futbol';
+  }
+
   const box = $('#avatarBox');
   const img = box.querySelector('img');
   if (me.avatar_url) {
@@ -121,10 +135,14 @@ function capa(c) {
   const miolo = futebolComEscudo
     ? `<div class="escudos"><img src="${esc(c.escudo_mandante)}" alt=""><span>X</span><img src="${esc(c.escudo_visitante)}" alt=""></div>`
     : `<i class="fas ${MOD[c.evento_tipo]?.ico || 'fa-bus'} cover-ico"></i>`;
+  const timeTorcida = (estado.me?.time_torcida || '').toLowerCase();
+  const matchTime = Boolean(timeTorcida && c.evento_nome && c.evento_nome.toLowerCase().includes(timeTorcida));
+
   return `
     <div class="card-cover ${esc(c.evento_tipo)}">
       <div class="tags">
         <span class="badge badge-${esc(c.evento_tipo)}">${MOD[c.evento_tipo]?.nome || ''}</span>
+        ${matchTime ? '<span class="badge badge-destaque" style="background:rgba(34,197,94,.18);color:var(--green);border:1px solid var(--green);"><i class="fas fa-star"></i> Recomendado para você</span>' : ''}
         ${c.exclusiva_pro_agora ? '<span class="badge badge-pro"><i class="fas fa-bolt"></i> Pré-venda Pro</span>' : ''}
         ${c.status !== 'aberta' ? `<span class="badge badge-bad">${esc(c.status)}</span>` : ''}
       </div>
@@ -135,8 +153,11 @@ function capa(c) {
 
 function cardCaravana(c, botoesHtml) {
   const pct = Math.min(100, Math.round((c.ocupados / c.vagas_totais) * 100));
+  const timeTorcida = (estado.me?.time_torcida || '').toLowerCase();
+  const matchTime = Boolean(timeTorcida && c.evento_nome && c.evento_nome.toLowerCase().includes(timeTorcida));
+
   return `
-    <article class="card">
+    <article class="card ${matchTime ? 'destaque-time' : ''}">
       ${capa(c)}
       <div class="card-body">
         <h3>${esc(c.evento_nome)}</h3>
@@ -187,6 +208,220 @@ $('#filtrosTipo').addEventListener('click', (e) => {
 });
 $('#filtroCidade').addEventListener('change', (e) => { estado.cidade = e.target.value; carregarCaravanas(); });
 
+// ─── Sub-abas: Caravanas vs Jogos Série A ─────────────────────────────────────
+$('#subtabCaravanas')?.addEventListener('click', () => {
+  $('#subtabCaravanas').classList.add('active');
+  $('#subtabJogosSerieA').classList.remove('active');
+  $('#secaoCaravanasVitrine').classList.remove('hidden');
+  $('#secaoJogosSerieA').classList.add('hidden');
+  $('#secaoFiltroCidade').style.display = 'block';
+});
+
+$('#subtabJogosSerieA')?.addEventListener('click', () => {
+  $('#subtabJogosSerieA').classList.add('active');
+  $('#subtabCaravanas').classList.remove('active');
+  $('#secaoCaravanasVitrine').classList.add('hidden');
+  $('#secaoJogosSerieA').classList.remove('hidden');
+  $('#secaoFiltroCidade').style.display = 'none';
+  carregarJogosSerieAApp();
+});
+
+$('#btnAtualizarJogosApp')?.addEventListener('click', carregarJogosSerieAApp);
+
+async function carregarJogosSerieAApp() {
+  const lista = $('#listaJogosSerieAApp');
+  lista.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2rem;"><i class="fas fa-spinner fa-spin fa-2x"></i><p style="margin-top:.8rem;">Carregando jogos oficiais do Brasileirão...</p></div>';
+  try {
+    const data = await api('/api/futebol/serie-a-jogos');
+    const jogos = data.jogos || [];
+    if (data.rodada_nome) {
+      $('#subtituloJogosApp').innerHTML = `<i class="fas fa-trophy" style="color:var(--green)"></i> <strong>${esc(data.competicao)} (${esc(data.rodada_nome)})</strong> — Dados oficiais API Futebol.`;
+    }
+    if (!jogos.length) {
+      lista.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:2rem;" class="muted">Nenhum jogo retornado no momento.</div>';
+      return;
+    }
+    lista.innerHTML = jogos.map(j => {
+      const statusCaravana = j.tem_caravana
+        ? `
+          <div style="margin-top:.8rem;padding-top:.8rem;border-top:1px solid var(--line);">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span class="badge badge-ok"><i class="fas fa-check-circle"></i> Caravana confirmada</span>
+              <strong style="color:var(--green);font-size:1.05rem;">${brl(j.caravana.preco)}</strong>
+            </div>
+            <div class="small muted" style="margin:.4rem 0;"><i class="fas fa-location-dot"></i> Saída de <strong>${esc(j.caravana.cidade_saida)}</strong> · ${j.caravana.vagas_livres} vagas restantes</div>
+            <button class="btn btn-primary btn-sm" style="width:100%;margin-top:.4rem;" data-action="detalhe" data-id="${j.caravana.id}"><i class="fas fa-ticket"></i> Ver Caravana e Reservar</button>
+          </div>`
+        : `
+          <div style="margin-top:.8rem;padding-top:.8rem;border-top:1px solid var(--line);">
+            <span class="badge badge-sem-caravana" style="display:block;text-align:center;padding:.5rem;border-radius:10px;font-size:.82rem;font-weight:600;">
+              <i class="fas fa-circle-exclamation"></i> Sem ingressos/caravana disponível para este evento
+            </span>
+          </div>`;
+
+      return `
+        <div class="jogo-card">
+          <div class="jogo-header">
+            <span><i class="fas fa-trophy" style="color:var(--green)"></i> ${esc(j.competicao || 'Brasileirão Série A')}</span>
+            <span><i class="fas fa-calendar-day"></i> ${dataBR(j.data_iso)}</span>
+          </div>
+          <div class="jogo-placar">
+            <div class="jogo-time">
+              ${j.escudo_mandante ? `<img src="${esc(j.escudo_mandante)}" alt="${esc(j.mandante)}">` : '<i class="fas fa-shield fa-2x"></i>'}
+              <span>${esc(j.mandante)}</span>
+            </div>
+            <div class="jogo-vs">VS</div>
+            <div class="jogo-time">
+              ${j.escudo_visitante ? `<img src="${esc(j.escudo_visitante)}" alt="${esc(j.visitante)}">` : '<i class="fas fa-shield fa-2x"></i>'}
+              <span>${esc(j.visitante)}</span>
+            </div>
+          </div>
+          <div class="jogo-info">
+            <span><i class="fas fa-location-dot"></i> Estádio: <strong>${esc(j.estadio || 'A definir')}</strong></span>
+          </div>
+          ${statusCaravana}
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    lista.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:2rem;color:#f87171;"><i class="fas fa-exclamation-triangle"></i> ${esc(err.message)}</div>`;
+  }
+}
+
+// ─── Modal Onboarding / Editar Meu Time ──────────────────────────────────────
+let timesSerieAApp = [];
+function abrirModalMeuTime() {
+  $('#modalMeuTime').classList.add('open');
+  mostrarStep1App();
+  carregarTimesSerieAApp();
+}
+function fecharModalMeuTime() {
+  $('#modalMeuTime').classList.remove('open');
+}
+$('#btnEditarTime')?.addEventListener('click', abrirModalMeuTime);
+$('#btnFecharModalMeuTime')?.addEventListener('click', fecharModalMeuTime);
+$('#modalMeuTime')?.addEventListener('click', (e) => { if (e.target.id === 'modalMeuTime') fecharModalMeuTime(); });
+
+function mostrarStep1App() {
+  const s1 = $('#stepEsporteApp');
+  const s2 = $('#stepTimeApp');
+  s1.style.display = 'block';
+  s1.className = 'anim-step anim-step-active';
+  s2.style.display = 'none';
+  s2.style.opacity = '0';
+}
+
+function mostrarStep2App() {
+  const s1 = $('#stepEsporteApp');
+  const s2 = $('#stepTimeApp');
+  s1.className = 'anim-step slide-out-left';
+  setTimeout(() => {
+    s1.style.display = 'none';
+    s2.style.display = 'block';
+    s2.style.opacity = '0';
+    s2.style.transform = 'translateX(40px)';
+    void s2.offsetWidth;
+    s2.style.transition = 'opacity .25s ease, transform .25s ease';
+    s2.style.opacity = '1';
+    s2.style.transform = 'translateX(0)';
+  }, 200);
+}
+
+$('#btnVoltarEsporteApp')?.addEventListener('click', () => {
+  const s1 = $('#stepEsporteApp');
+  const s2 = $('#stepTimeApp');
+  s2.style.transition = 'opacity .2s ease, transform .2s ease';
+  s2.style.opacity = '0';
+  s2.style.transform = 'translateX(40px)';
+  setTimeout(() => {
+    s2.style.display = 'none';
+    s1.style.display = 'block';
+    s1.style.opacity = '0';
+    s1.style.transform = 'translateX(-40px)';
+    void s1.offsetWidth;
+    s1.style.transition = 'opacity .25s ease, transform .25s ease';
+    s1.style.opacity = '1';
+    s1.style.transform = 'translateX(0)';
+  }, 200);
+});
+
+$('#btnAppFutebol')?.addEventListener('click', mostrarStep2App);
+$('#btnAppCorrida')?.addEventListener('click', () => salvarTimeApp('Fórmula 1'));
+$('#btnAppMMA')?.addEventListener('click', () => salvarTimeApp('MMA'));
+
+async function carregarTimesSerieAApp() {
+  if (timesSerieAApp.length) { renderizarTimesApp(timesSerieAApp); return; }
+  try {
+    timesSerieAApp = await api('/api/futebol/serie-a-times');
+    renderizarTimesApp(timesSerieAApp);
+  } catch (err) {
+    $('#gridTimesApp').innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#f87171;">Não foi possível listar os clubes agora. Digite seu time na busca acima.</div>';
+  }
+}
+
+function renderizarTimesApp(lista) {
+  const grid = $('#gridTimesApp');
+  if (!lista.length) {
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:1.5rem;">Nenhum clube encontrado com este nome.</div>';
+    return;
+  }
+  const torcidaAtual = (estado.me?.time_torcida || '').toLowerCase();
+  grid.innerHTML = lista.map(t => {
+    const isSelected = torcidaAtual === t.nome.toLowerCase();
+    return `
+      <div class="time-item ${isSelected ? 'selected' : ''}" data-time="${esc(t.nome)}">
+        <img src="${esc(t.escudo)}" alt="${esc(t.nome)}" loading="lazy">
+        <span>${esc(t.nome)}</span>
+        ${isSelected ? '<i class="fas fa-check" style="color:var(--green)"></i>' : ''}
+      </div>
+    `;
+  }).join('');
+
+  grid.querySelectorAll('.time-item').forEach(item => {
+    item.addEventListener('click', () => salvarTimeApp(item.dataset.time));
+  });
+}
+
+$('#inputBuscaTimeApp')?.addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  const filtrados = timesSerieAApp.filter(t => t.nome.toLowerCase().includes(q) || (t.sigla && t.sigla.toLowerCase().includes(q)));
+  renderizarTimesApp(filtrados);
+
+  const customRow = $('#customTeamRowApp');
+  if (q.length >= 2 && !timesSerieAApp.some(t => t.nome.toLowerCase() === q)) {
+    customRow.style.display = 'flex';
+    $('#customTeamNomeApp').textContent = e.target.value.trim();
+  } else {
+    customRow.style.display = 'none';
+  }
+});
+
+$('#btnConfirmarCustomApp')?.addEventListener('click', () => {
+  const nome = $('#inputBuscaTimeApp').value.trim();
+  if (nome) salvarTimeApp(nome);
+});
+$('#inputBuscaTimeApp')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const nome = $('#inputBuscaTimeApp').value.trim();
+    if (nome) salvarTimeApp(nome);
+  }
+});
+
+async function salvarTimeApp(nome) {
+  try {
+    await api('/api/perfil/time', { method: 'PUT', body: { time_torcida: nome } });
+    estado.me.time_torcida = nome;
+    toast(`Preferência atualizada para ${nome}! Caravanas recomendadas em destaque.`);
+    fecharModalMeuTime();
+    await carregarMe();
+    await carregarCaravanas();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+// ─── Detalhes e Reserva ──────────────────────────────────────────────────────
 async function detalheCaravana(id) {
   try {
     const c = await api(`/api/caravanas/${id}`);
@@ -583,15 +818,20 @@ async function adminUsuarios() {
   try {
     const usuarios = await api('/api/admin/usuarios');
     box.innerHTML = `
-      <p class="muted small" style="margin-bottom:1rem;">Novos cadastros entram como <strong>passageiro</strong>. Promova organizadores e administradores aqui. Cupons só podem ser enviados para assinantes Pro.</p>
+      <p class="muted small" style="margin-bottom:1rem;">Novos cadastros entram como <strong>passageiro</strong>. Promova organizadores e administradores aqui. Use <strong>1-Click Pro</strong> para ativar ou desativar o plano Pro instantaneamente.</p>
       <div class="table-wrap"><table>
-        <tr><th>#</th><th>Nome</th><th>E-mail</th><th>Time</th><th>Plano</th><th>Papel</th><th></th></tr>
+        <tr><th>#</th><th>Nome</th><th>E-mail</th><th>Time / Torcida</th><th>Plano</th><th>Papel</th><th style="text-align:right;">Ações</th></tr>
         ${usuarios.map(u => `<tr>
           <td>${u.id}</td><td>${esc(u.nome)}</td><td>${esc(u.email)}</td>
           <td class="small muted">${esc(u.time_torcida || '-')}</td>
-          <td>${u.premium == 1 ? '<span class="badge badge-pro">Pro</span>' : '<span class="badge">Free</span>'}</td>
+          <td>${u.premium == 1 ? '<span class="badge badge-pro"><i class="fas fa-crown"></i> Pro</span>' : '<span class="badge">Free</span>'}</td>
           <td><select data-papel="${u.id}" style="width:auto;">${['passageiro', 'organizador', 'admin'].map(p => `<option ${p === (u.papel || u.role) ? 'selected' : ''}>${p}</option>`).join('')}</select></td>
-          <td>${u.premium == 1 ? `<button class="btn btn-gold btn-sm" data-action="novo-cupom" data-id="${u.id}" data-nome="${esc(u.nome)}"><i class="fas fa-percent"></i> Enviar cupom</button>` : ''}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            ${u.premium == 1
+              ? `<button class="btn btn-gold btn-sm" data-action="novo-cupom" data-id="${u.id}" data-nome="${esc(u.nome)}"><i class="fas fa-percent"></i> Cupom</button>
+                 <button class="btn btn-ghost btn-sm" data-action="remover-pro" data-id="${u.id}" style="color:#f87171;" title="Desativar Pro"><i class="fas fa-ban"></i> Remover Pro</button>`
+              : `<button class="btn btn-primary btn-sm" data-action="promover-pro" data-id="${u.id}"><i class="fas fa-bolt"></i> 1-Click Pro</button>`}
+          </td>
         </tr>`).join('')}
       </table></div>`;
   } catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
@@ -640,23 +880,23 @@ async function adminLogs() {
       <div class="table-wrap"><table>
       <tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Detalhes</th><th>IP</th><th></th></tr>
       ${logs.map(l => `<tr>
-        <td class="small">${new Date(l.data_hora).toLocaleString('pt-BR')}</td><td>${esc(l.usuario_id)}</td>
+        <td class="small">${new Date(l.data_hora || l.criado_em).toLocaleString('pt-BR')}</td><td>${esc(l.usuario_id)}</td>
         <td><span class="badge ${/negada|403|falha|alheia/.test(l.acao) ? 'badge-bad' : /reserv|caravana|cupom|pagamento|brinde/.test(l.acao) ? 'badge-ok' : ''}">${esc(l.acao)}</span></td>
         <td class="small">${esc(l.detalhes)}</td><td class="small muted">${esc(l.ip)}</td>
-        <td><button class="btn btn-ghost btn-sm" data-action="apagar-log" data-id="${esc(l.id_redis)}"><i class="fas fa-trash"></i></button></td>
+        <td><button class="btn btn-ghost btn-sm" data-action="apagar-log" data-id="${esc(l.id_redis || l.id)}"><i class="fas fa-trash"></i></button></td>
       </tr>`).join('')}
     </table></div>`;
   } catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
 }
 
-// ─── Ações (delegação de eventos) ────────────────────────────────────────────
+// ─── Ações globais (data-action) ─────────────────────────────────────────────
 const acoes = {
   'fechar-modal': fecharModal,
-  detalhe: (id) => detalheCaravana(id),
-  comprar: (id, el) => comprar(id, el),
-  pagar: (id) => pagarPendente(id),
+  'detalhe': (id) => detalheCaravana(id),
+  'comprar': (id, el) => comprar(id, el),
+  'pagar': (id) => pagarPendente(id),
   'cancelar-reserva': (id, el) => cancelarReserva(id, el.dataset.status),
-  passageiros: (id) => verPassageiros(id),
+  'passageiros': (id) => verPassageiros(id),
   'assinar-pro': async () => {
     try { const r = await api('/api/stripe/checkout', { method: 'POST' }); window.location.href = r.url; }
     catch (err) { toast(err.message, 'err'); }
@@ -696,6 +936,20 @@ const acoes = {
   'apagar-log': async (_, el) => {
     try { await api(`/api/logs/${encodeURIComponent(el.dataset.id)}`, { method: 'DELETE' }); adminLogs(); }
     catch (err) { toast(err.message, 'err'); }
+  },
+  'promover-pro': async (id) => {
+    try {
+      await api(`/api/admin/usuarios/${id}/promover-pro`, { method: 'POST' });
+      toast(`Usuário #${id} promovido a Pro com 1-Click!`);
+      adminUsuarios();
+    } catch (err) { toast(err.message, 'err'); }
+  },
+  'remover-pro': async (id) => {
+    try {
+      await api(`/api/admin/usuarios/${id}/remover-pro`, { method: 'POST' });
+      toast(`Plano Pro desativado para o usuário #${id}.`);
+      adminUsuarios();
+    } catch (err) { toast(err.message, 'err'); }
   }
 };
 
