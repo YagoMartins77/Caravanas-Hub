@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Entrar — Caravana's Hub</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=202611132">
 </head>
 <body class="auth-page">
   <div class="auth-card" id="authBox">
@@ -206,6 +206,8 @@
       const s1 = $('stepEsporte');
       const s2 = $('stepTime');
       s1.style.display = 'block';
+      s1.style.opacity = '1';
+      s1.style.transform = 'translateX(0)';
       s1.className = 'anim-step anim-step-active';
       s2.style.display = 'none';
       s2.style.opacity = '0';
@@ -290,7 +292,7 @@
       }
       grid.innerHTML = lista.map(t => `
         <div class="time-item" data-time="${esc(t.nome)}">
-          <img src="${esc(t.escudo)}" alt="${esc(t.nome)}" loading="lazy">
+          <img src="${esc(t.escudo)}" alt="${esc(t.nome)}" loading="lazy" onerror="this.outerHTML='<div style=\\'width:44px;height:44px;border-radius:50%;background:rgba(34,197,94,.15);border:1px solid var(--green);display:grid;place-items:center;font-weight:800;font-size:.78rem;color:var(--green)\\'>${esc((t.sigla || t.nome || '').slice(0, 3).toUpperCase())}</div>'">
           <span>${esc(t.nome)}</span>
         </div>
       `).join('');

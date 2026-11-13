@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Caravana's Hub</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=202611132">
 </head>
 <body>
   <nav class="nav">
     <div class="container">
-      <a class="brand" data-view="caravanas"><div class="logo"><i class="fas fa-bus"></i></div><span>Caravana's <b>Hub</b></span></a>
+      <a class="brand" href="/" title="Voltar para a Página Inicial"><div class="logo"><i class="fas fa-bus"></i></div><span>Caravana's <b>Hub</b></span></a>
       <div class="nav-links" id="navLinks">
+        <a href="/">Início</a>
         <a data-view="caravanas" class="active">Caravanas</a>
         <a data-view="passagens">Minhas passagens</a>
         <a data-view="pro">Pro &amp; cupons</a>
@@ -19,7 +20,7 @@
         <a data-view="admin" class="hidden" id="linkAdmin">Admin</a>
       </div>
       <div class="nav-right">
-        <button class="btn btn-ghost btn-sm" id="btnEditarTime" title="Clique para alterar seu time ou esporte favorito" style="border:1px solid var(--line);margin-right:.4rem;">
+        <button type="button" class="btn btn-ghost btn-sm" id="btnEditarTime" data-action="editar-time" title="Clique para escolher ou alterar seu time/esporte favorito" style="border:1px solid var(--line);margin-right:.4rem;">
           <i class="fas fa-futbol" id="icoMeuTime"></i> <span id="labelMeuTime">Meu Time</span>
         </button>
         <span id="badgePlano"></span>
@@ -175,6 +176,6 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=202611132"></script>
 </body>
 </html>

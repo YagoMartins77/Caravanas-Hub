@@ -224,14 +224,14 @@ INSERT IGNORE INTO organizadores (conta_id, documento, descricao_frota, contato_
 
 -- Vincula usuários free e premium
 INSERT IGNORE INTO usuarios_premium (conta_id, ativo) VALUES (1, 1);
-INSERT IGNORE INTO usuarios_free (conta_id) VALUES (3);
+INSERT IGNORE INTO usuarios_free (conta_id) VALUES (1), (2), (3);
 
 -- Eventos de exemplo
-INSERT IGNORE INTO eventos (id, tipo_evento_id, nome, local, pais, data_evento, competicao, valor_ingresso, criado_por) VALUES
-  (1, 1, 'Santos x Palmeiras', 'Vila Belmiro - Santos', 'Brasil', '2026-12-06', 'Campeonato Brasileiro - Série A', 140.00, 1),
-  (2, 2, 'Grande Prêmio de São Paulo de F1', 'Autódromo de Interlagos - São Paulo', 'Brasil', '2027-11-07', 'Fórmula 1', 990.00, 1),
-  (3, 3, 'UFC Fight Night São Paulo', 'Ginásio do Ibirapuera - São Paulo', 'Brasil', '2027-03-20', 'UFC', 450.00, 1),
-  (4, 1, 'Corinthians x Santos', 'Neo Química Arena - São Paulo', 'Brasil', '2027-02-14', 'Campeonato Paulista', 120.00, 2);
+INSERT IGNORE INTO eventos (id, tipo_evento_id, nome, local, pais, data_evento, competicao, valor_ingresso, escudo_mandante, escudo_visitante, criado_por) VALUES
+  (1, 1, 'Santos x Palmeiras', 'Vila Belmiro - Santos', 'Brasil', '2026-12-06', 'Campeonato Brasileiro - Série A', 140.00, 'https://cdn.api-futebol.com.br/times/escudos/677fc82a860d4.svg', 'https://cdn.api-futebol.com.br/times/escudos/677fc746b0687.svg', 1),
+  (2, 2, 'Grande Prêmio de São Paulo de F1', 'Autódromo de Interlagos - São Paulo', 'Brasil', '2027-11-07', 'Fórmula 1', 990.00, NULL, NULL, 1),
+  (3, 3, 'UFC Fight Night São Paulo', 'Ginásio do Ibirapuera - São Paulo', 'Brasil', '2027-03-20', 'UFC', 450.00, NULL, NULL, 1),
+  (4, 1, 'Corinthians x Santos', 'Neo Química Arena - São Paulo', 'Brasil', '2027-02-14', 'Campeonato Paulista', 120.00, 'https://cdn.api-futebol.com.br/times/escudos/677fc7386c4ef.svg', 'https://cdn.api-futebol.com.br/times/escudos/677fc82a860d4.svg', 2);
 
 -- Caravanas de exemplo
 INSERT IGNORE INTO caravanas (id, evento_id, organizador_id, vagas_totais, preco, data_saida, local_saida, cidade_saida, abertura_vendas_em, status) VALUES

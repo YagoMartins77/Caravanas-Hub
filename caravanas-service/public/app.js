@@ -133,7 +133,7 @@ $('#btnSair').addEventListener('click', async () => {
 function capa(c) {
   const futebolComEscudo = c.evento_tipo === 'futebol' && c.escudo_mandante && c.escudo_visitante;
   const miolo = futebolComEscudo
-    ? `<div class="escudos"><img src="${esc(c.escudo_mandante)}" alt=""><span>X</span><img src="${esc(c.escudo_visitante)}" alt=""></div>`
+    ? `<div class="escudos"><img src="${esc(c.escudo_mandante)}" alt="" onerror="this.outerHTML='<i class=\\'fas fa-shield-halved fa-2x\\' style=\\'color:var(--green)\\'></i>'"><span>X</span><img src="${esc(c.escudo_visitante)}" alt="" onerror="this.outerHTML='<i class=\\'fas fa-shield-halved fa-2x\\' style=\\'color:var(--green)\\'></i>'"></div>`
     : `<i class="fas ${MOD[c.evento_tipo]?.ico || 'fa-bus'} cover-ico"></i>`;
   const timeTorcida = (estado.me?.time_torcida || '').toLowerCase();
   const matchTime = Boolean(timeTorcida && c.evento_nome && c.evento_nome.toLowerCase().includes(timeTorcida));
@@ -267,12 +267,12 @@ async function carregarJogosSerieAApp() {
           </div>
           <div class="jogo-placar">
             <div class="jogo-time">
-              ${j.escudo_mandante ? `<img src="${esc(j.escudo_mandante)}" alt="${esc(j.mandante)}">` : '<i class="fas fa-shield fa-2x"></i>'}
+              ${j.escudo_mandante ? `<img src="${esc(j.escudo_mandante)}" alt="${esc(j.mandante)}" onerror="this.outerHTML='<i class=\\'fas fa-shield-halved fa-2x\\' style=\\'color:var(--green)\\'></i>'">` : '<i class="fas fa-shield-halved fa-2x" style="color:var(--green)"></i>'}
               <span>${esc(j.mandante)}</span>
             </div>
             <div class="jogo-vs">VS</div>
             <div class="jogo-time">
-              ${j.escudo_visitante ? `<img src="${esc(j.escudo_visitante)}" alt="${esc(j.visitante)}">` : '<i class="fas fa-shield fa-2x"></i>'}
+              ${j.escudo_visitante ? `<img src="${esc(j.escudo_visitante)}" alt="${esc(j.visitante)}" onerror="this.outerHTML='<i class=\\'fas fa-shield-halved fa-2x\\' style=\\'color:var(--green)\\'></i>'">` : '<i class="fas fa-shield-halved fa-2x" style="color:var(--green)"></i>'}
               <span>${esc(j.visitante)}</span>
             </div>
           </div>
@@ -291,21 +291,26 @@ async function carregarJogosSerieAApp() {
 // ─── Modal Onboarding / Editar Meu Time ──────────────────────────────────────
 let timesSerieAApp = [];
 function abrirModalMeuTime() {
-  $('#modalMeuTime').classList.add('open');
+  const m = $('#modalMeuTime');
+  if (!m) return;
+  m.classList.add('open');
   mostrarStep1App();
   carregarTimesSerieAApp();
 }
+window.abrirModalMeuTime = abrirModalMeuTime;
 function fecharModalMeuTime() {
-  $('#modalMeuTime').classList.remove('open');
+  $('#modalMeuTime')?.classList.remove('open');
 }
-$('#btnEditarTime')?.addEventListener('click', abrirModalMeuTime);
 $('#btnFecharModalMeuTime')?.addEventListener('click', fecharModalMeuTime);
 $('#modalMeuTime')?.addEventListener('click', (e) => { if (e.target.id === 'modalMeuTime') fecharModalMeuTime(); });
 
 function mostrarStep1App() {
   const s1 = $('#stepEsporteApp');
   const s2 = $('#stepTimeApp');
+  if (!s1 || !s2) return;
   s1.style.display = 'block';
+  s1.style.opacity = '1';
+  s1.style.transform = 'translateX(0)';
   s1.className = 'anim-step anim-step-active';
   s2.style.display = 'none';
   s2.style.opacity = '0';
@@ -370,7 +375,7 @@ function renderizarTimesApp(lista) {
     const isSelected = torcidaAtual === t.nome.toLowerCase();
     return `
       <div class="time-item ${isSelected ? 'selected' : ''}" data-time="${esc(t.nome)}">
-        <img src="${esc(t.escudo)}" alt="${esc(t.nome)}" loading="lazy">
+        <img src="${esc(t.escudo)}" alt="${esc(t.nome)}" loading="lazy" onerror="this.outerHTML='<div style=\\'width:44px;height:44px;border-radius:50%;background:rgba(34,197,94,.15);border:1px solid var(--green);display:grid;place-items:center;font-weight:800;font-size:.78rem;color:var(--green)\\'>${esc((t.sigla || t.nome || '').slice(0, 3).toUpperCase())}</div>'">
         <span>${esc(t.nome)}</span>
         ${isSelected ? '<i class="fas fa-check" style="color:var(--green)"></i>' : ''}
       </div>
@@ -542,7 +547,9 @@ async function carregarPro() {
         <li><i class="fas fa-percent"></i> Recebe cupons de desconto do organizador</li>
         <li><i class="fas fa-gift"></i> Participa dos sorteios de brindes e prêmios</li>
       </ul>
-      ${(estado.me.papel || estado.me.role) !== 'admin' ? '<button class="btn btn-danger btn-sm" data-action="cancelar-pro" style="align-self:flex-start;">Cancelar assinatura</button>' : '<p class="muted small">Administradores têm os benefícios Pro automaticamente.</p>'}
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.4rem;">
+        <button class="btn btn-danger btn-sm" data-action="cancelar-pro"><i class="fas fa-ban"></i> Cancelar assinatura Pro</button>
+      </div>
     </div>` : `
     <div class="plan pro" style="max-width:640px;">
       <h3><i class="fas fa-crown" style="color:var(--gold)"></i> Caravana's Hub Pro</h3>
@@ -892,6 +899,7 @@ async function adminLogs() {
 // ─── Ações globais (data-action) ─────────────────────────────────────────────
 const acoes = {
   'fechar-modal': fecharModal,
+  'editar-time': () => abrirModalMeuTime(),
   'detalhe': (id) => detalheCaravana(id),
   'comprar': (id, el) => comprar(id, el),
   'pagar': (id) => pagarPendente(id),

@@ -44,7 +44,7 @@ const ANTECEDENCIA_PRO_DIAS = Number(process.env.ANTECEDENCIA_PRO_DIAS) || 3;
 
 // ─── API Futebol (substitui o TMDB) ──────────────────────────────────────────
 const API_FUTEBOL_URL = 'https://api.api-futebol.com.br/v1';
-const API_FUTEBOL_KEY = process.env.API_FUTEBOL_KEY || '';
+const API_FUTEBOL_KEY = process.env.API_FUTEBOL_KEY || 'test_68ba16b436df74f33d5965418b497f';
 const futebolApi = axios.create({
   baseURL: API_FUTEBOL_URL,
   timeout: 8000,
@@ -215,6 +215,19 @@ async function migrarBanco() {
     }
   }
   console.log(`[DB] Migração 001_dominio.sql: ${ok}/${statements.length} comandos aplicados.`);
+  try {
+    await pool.query('INSERT IGNORE INTO usuarios_free (conta_id) SELECT id FROM contas');
+    await pool.query(
+      'UPDATE eventos SET escudo_mandante = ?, escudo_visitante = ? WHERE id = 1',
+      ['https://cdn.api-futebol.com.br/times/escudos/677fc82a860d4.svg', 'https://cdn.api-futebol.com.br/times/escudos/677fc746b0687.svg']
+    );
+    await pool.query(
+      'UPDATE eventos SET escudo_mandante = ?, escudo_visitante = ? WHERE id = 4',
+      ['https://cdn.api-futebol.com.br/times/escudos/677fc7386c4ef.svg', 'https://cdn.api-futebol.com.br/times/escudos/677fc82a860d4.svg']
+    );
+  } catch (e) {
+    console.warn('[DB] Aviso ao sincronizar escudos/usuarios_free:', e.message);
+  }
 }
 migrarBanco().catch(e => console.error('[DB] Erro nas migrações:', e.message));
 
@@ -379,7 +392,13 @@ app.post('/api/stripe/webhook',
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: false,
+  maxAge: 0,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  }
+}));
 
 const sessionStore = new MySQLStore({}, pool);
 app.use(session({
@@ -422,7 +441,7 @@ async function carregarUsuario(req, res, next) {
       time_torcida: u.time_torcida,
       avatar_url: u.avatar_url,
       stripe_customer_id: u.stripe_customer_id,
-      pro: u.papel === 'admin' || u.pro_ativo == 1
+      pro: u.pro_ativo == 1
     };
     req.session.usuario.role = u.papel;
     req.session.usuario.papel = u.papel;
@@ -501,7 +520,7 @@ app.get('/api/auth/me', async (req, res) => {
     req.session.usuario = {
       id: u.id, nome: u.nome, email: u.email,
       role: u.papel, papel: u.papel, time_torcida: u.time_torcida, avatar_url: u.avatar_url,
-      premium: (u.papel === 'admin' || u.pro_ativo == 1) ? 1 : 0
+      premium: u.pro_ativo == 1 ? 1 : 0
     };
   } catch {}
   res.json({ ...req.session.usuario, antecedencia_pro_dias: ANTECEDENCIA_PRO_DIAS });
@@ -627,10 +646,6 @@ app.get('/api/stripe/verify-session', autenticado, async (req, res) => {
 app.post('/api/stripe/sincronizar', autenticado, async (req, res) => {
   try {
     const usuario = req.usuario;
-    if (usuario.papel === 'admin') {
-      return res.json({ success: true, premium: true, message: 'Administrador já tem todos os benefícios Pro.' });
-    }
-
     let customerId = usuario.stripe_customer_id;
     if (!customerId && usuario.email) {
       try {
@@ -664,7 +679,7 @@ app.post('/api/stripe/cancelar', autenticado, async (req, res) => {
     const customerId = usuario.stripe_customer_id;
 
     let canceladas = 0;
-    if (customerId) {
+    if (customerId && STRIPE_SECRET_KEY) {
       try {
         const subs = await stripe.subscriptions.list({ customer: customerId, status: 'active' });
         for (const sub of subs.data) {
@@ -677,8 +692,10 @@ app.post('/api/stripe/cancelar', autenticado, async (req, res) => {
     }
 
     await pool.query('UPDATE usuarios_premium SET ativo = 0 WHERE conta_id = ?', [usuario.id]);
+    await pool.query('INSERT IGNORE INTO usuarios_free (conta_id) VALUES (?)', [usuario.id]);
+    if (req.session.usuario) req.session.usuario.premium = 0;
     await registrarAuditoria(usuario.id, 'cancelar_pro', `Assinatura Pro cancelada (${canceladas} removidas no Stripe)`, getClientIp(req));
-    res.json({ success: true, message: 'Assinatura Pro cancelada.' });
+    res.json({ success: true, premium: false, message: 'Assinatura Pro cancelada com sucesso. Sua conta voltou para o plano Free.' });
   } catch (err) {
     console.error('[Stripe] Erro ao cancelar:', err.message);
     res.status(500).json({ error: 'Erro ao cancelar assinatura: ' + err.message });
@@ -1160,26 +1177,26 @@ let cacheTimesSerieA = null;
 let cacheTimesTimestamp = 0;
 
 const FALLBACK_TIMES_SERIE_A = [
-  { nome: 'Santos', sigla: 'SAN', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc70845348.svg' },
-  { nome: 'Palmeiras', sigla: 'PAL', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc746b0687.svg' },
-  { nome: 'Corinthians', sigla: 'COR', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc70b8982a.svg' },
-  { nome: 'São Paulo', sigla: 'SAO', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc740c034b.svg' },
-  { nome: 'Flamengo', sigla: 'FLA', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc73fcec1e.svg' },
-  { nome: 'Vasco', sigla: 'VAS', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc702ef04f.svg' },
-  { nome: 'Fluminense', sigla: 'FLU', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc741d4fa4.svg' },
-  { nome: 'Botafogo', sigla: 'BOT', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc7007e0c8.svg' },
-  { nome: 'Grêmio', sigla: 'GRE', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc74499092.svg' },
-  { nome: 'Internacional', sigla: 'INT', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc7479eb11.svg' },
-  { nome: 'Cruzeiro', sigla: 'CRU', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc7451529e.svg' },
-  { nome: 'Atlético-MG', sigla: 'CAM', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc7097c271.svg' },
-  { nome: 'Bahia', sigla: 'BAH', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc70a836be.svg' },
-  { nome: 'Fortaleza', sigla: 'FOR', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc743013b5.svg' },
-  { nome: 'Athletico-PR', sigla: 'CAP', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc70c9fafe.svg' },
-  { nome: 'Vitória', sigla: 'VIT', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc74855410.svg' },
-  { nome: 'Red Bull Bragantino', sigla: 'RBB', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc73eaeb1e.svg' },
-  { nome: 'Juventude', sigla: 'JUV', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc82cb9716.svg' },
-  { nome: 'Criciúma', sigla: 'CRI', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc701831c4.svg' },
-  { nome: 'Mirassol', sigla: 'MIR', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc831214bd.svg' }
+  { time_id: 63, nome: 'Santos', sigla: 'SAN', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc82a860d4.svg' },
+  { time_id: 56, nome: 'Palmeiras', sigla: 'PAL', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc746b0687.svg' },
+  { time_id: 65, nome: 'Corinthians', sigla: 'COR', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc7386c4ef.svg' },
+  { time_id: 57, nome: 'São Paulo', sigla: 'SAO', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc754a5a78.svg' },
+  { time_id: 18, nome: 'Flamengo', sigla: 'FLA', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc73fcec1e.svg' },
+  { time_id: 23, nome: 'Vasco', sigla: 'VAS', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc702ef04f.svg' },
+  { time_id: 26, nome: 'Fluminense', sigla: 'FLU', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc750c6c81.svg' },
+  { time_id: 22, nome: 'Botafogo', sigla: 'BOT', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc743454d0.svg' },
+  { time_id: 45, nome: 'Grêmio', sigla: 'GRE', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc735c7d91.svg' },
+  { time_id: 44, nome: 'Internacional', sigla: 'INT', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc74bc3190.svg' },
+  { time_id: 37, nome: 'Cruzeiro', sigla: 'CRU', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc7451529e.svg' },
+  { time_id: 30, nome: 'Atlético-MG', sigla: 'CAM', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc73a35795.svg' },
+  { time_id: 68, nome: 'Bahia', sigla: 'BAH', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc749f1800.svg' },
+  { time_id: 131, nome: 'Fortaleza', sigla: 'FOR', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc7563ed30.svg' },
+  { time_id: 105, nome: 'Ceará', sigla: 'CEA', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc7cce4b29.svg' },
+  { time_id: 102, nome: 'Vitória', sigla: 'VIT', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc74855410.svg' },
+  { time_id: 64, nome: 'Bragantino', sigla: 'RBB', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc752d567b.svg' },
+  { time_id: 43, nome: 'Juventude', sigla: 'JUV', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc74d62e5a.svg' },
+  { time_id: 79, nome: 'Sport', sigla: 'SPO', escudo: 'https://cdn.api-futebol.com.br/escudos/795b1df331d02.svg' },
+  { time_id: 60, nome: 'Mirassol', sigla: 'MIR', escudo: 'https://cdn.api-futebol.com.br/times/escudos/677fc831214bd.svg' }
 ];
 
 app.get('/api/futebol/serie-a-times', async (req, res) => {
@@ -1211,8 +1228,8 @@ const FALLBACK_JOGOS_SERIE_A = [
     campeonato: 'Campeonato Brasileiro - Série A',
     mandante: 'Palmeiras',
     visitante: 'Corinthians',
-    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc8340d87e.svg',
-    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc708b776f.svg',
+    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc746b0687.svg',
+    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc7386c4ef.svg',
     data_iso: '2026-11-22T16:00:00Z',
     estadio: 'Allianz Parque',
     status: 'agendado'
@@ -1222,8 +1239,8 @@ const FALLBACK_JOGOS_SERIE_A = [
     campeonato: 'Campeonato Brasileiro - Série A',
     mandante: 'Santos',
     visitante: 'São Paulo',
-    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc8455e1bf.svg',
-    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc8488e085.svg',
+    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc82a860d4.svg',
+    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc754a5a78.svg',
     data_iso: '2026-11-23T18:30:00Z',
     estadio: 'Vila Belmiro',
     status: 'agendado'
@@ -1233,8 +1250,8 @@ const FALLBACK_JOGOS_SERIE_A = [
     campeonato: 'Campeonato Brasileiro - Série A',
     mandante: 'Flamengo',
     visitante: 'Fluminense',
-    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc73f08960.svg',
-    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc80e9a7e1.svg',
+    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc73fcec1e.svg',
+    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc750c6c81.svg',
     data_iso: '2026-11-23T21:00:00Z',
     estadio: 'Maracanã',
     status: 'agendado'
@@ -1244,8 +1261,8 @@ const FALLBACK_JOGOS_SERIE_A = [
     campeonato: 'Campeonato Brasileiro - Série A',
     mandante: 'Atlético-MG',
     visitante: 'Cruzeiro',
-    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc6d6118d3.svg',
-    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc7199fa68.svg',
+    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc73a35795.svg',
+    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc7451529e.svg',
     data_iso: '2026-11-24T16:00:00Z',
     estadio: 'Arena MRV',
     status: 'agendado'
@@ -1255,8 +1272,8 @@ const FALLBACK_JOGOS_SERIE_A = [
     campeonato: 'Campeonato Brasileiro - Série A',
     mandante: 'Internacional',
     visitante: 'Grêmio',
-    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc824ab742.svg',
-    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc81e285ee.svg',
+    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc74bc3190.svg',
+    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc735c7d91.svg',
     data_iso: '2026-11-24T18:30:00Z',
     estadio: 'Beira-Rio',
     status: 'agendado'
@@ -1265,9 +1282,9 @@ const FALLBACK_JOGOS_SERIE_A = [
     partida_id: 1006,
     campeonato: 'Campeonato Brasileiro - Série A',
     mandante: 'Botafogo',
-    visitante: 'Vasco da Gama',
-    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc6eb823ba.svg',
-    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc84ebc9b8.svg',
+    visitante: 'Vasco',
+    escudo_mandante: 'https://cdn.api-futebol.com.br/times/escudos/677fc743454d0.svg',
+    escudo_visitante: 'https://cdn.api-futebol.com.br/times/escudos/677fc702ef04f.svg',
     data_iso: '2026-11-25T20:00:00Z',
     estadio: 'Nilton Santos',
     status: 'agendado'
@@ -1488,6 +1505,11 @@ app.post('/api/reservas', autenticado, async (req, res) => {
     const total = Math.max(1, arred(precoBase - desconto));
     const freeId = req.usuario.pro ? null : req.usuario.id;
     const premId = req.usuario.pro ? req.usuario.id : null;
+    if (freeId) {
+      await conn.query('INSERT IGNORE INTO usuarios_free (conta_id) VALUES (?)', [freeId]);
+    } else if (premId) {
+      await conn.query('INSERT INTO usuarios_premium (conta_id, ativo) VALUES (?, 1) ON DUPLICATE KEY UPDATE ativo = 1', [premId]);
+    }
 
     const [r] = await conn.query(
       `INSERT INTO reservas (caravana_id, usuario_free_id, usuario_premium_id, status_pagamento, cupom_id, desconto, valor_total, expira_em)
@@ -1705,6 +1727,7 @@ app.post('/api/admin/usuarios/:id/remover-pro', somenteAdmin, async (req, res) =
   const alvoId = Number(req.params.id);
   try {
     await pool.query('UPDATE usuarios_premium SET ativo = 0 WHERE conta_id = ?', [alvoId]);
+    await pool.query('INSERT IGNORE INTO usuarios_free (conta_id) VALUES (?)', [alvoId]);
     await registrarAuditoria(req.usuario.id, 'remover_pro', `Admin desativou Pro da conta #${alvoId}`, getClientIp(req));
     res.json({ message: 'Plano Pro desativado para o usuário.' });
   } catch (err) {
