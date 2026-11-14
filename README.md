@@ -3,7 +3,8 @@
 > **Disciplina:** ISW055 — Introdução à Computação em Nuvem  
 > **Atividade:** Atividade 11 — Assinatura recorrente: SaaS completo — planos, limites e assinatura com Stripe  
 > **Professor:** [@siriani](https://github.com/siriani) (`github.com/siriani`)  
-> **Endereço público (Stack Portainer):** [https://yago-martins-isw055.lapps.studio](https://yago-martins-isw055.lapps.studio)
+> **Endereço público (Stack Portainer):** [https://yago-martins-isw055.lapps.studio](https://yago-martins-isw055.lapps.studio)  
+> **Relatório Consolidado P2:** [P2_ISW055_Yago_Martins.pdf](./docs/P2_ISW055_Yago_Martins.pdf) (fonte em [P2_ISW055_Yago_Martins.typ](./docs/P2_ISW055_Yago_Martins.typ))
 
 ---
 
