@@ -224,12 +224,16 @@ Quatro eventos são tratados no manipulador de webhook:
 Para gestão de cobrança e cancelamento pelo próprio cliente, a aplicação expõe `POST /api/stripe/portal` (que gera sessão no *Stripe Billing Portal*), `POST /api/stripe/cancelar` (cancelamento direto na API do Stripe retornando a conta ao plano Free) e as rotas auxiliares `GET /api/stripe/verify-session` e `POST /api/stripe/sincronizar`.
 
 == Modelo de dados do domínio
-#evidencia([Diagrama entidade-relacionamento das tabelas de domínio, assinaturas e sessões no MariaDB], arquivo: "prints/diag_modelo_dados.png")
+#figure(
+  image("prints/diag_modelo_dados.png", height: 20cm, fit: "contain"),
+  kind: image, supplement: [Figura],
+  caption: [Diagrama entidade-relacionamento das tabelas de domínio, assinaturas e sessões no MariaDB],
+)
 
 O banco relacional MariaDB (`db/001_dominio.sql` e migrações automáticas de inicialização em `caravanas-service/server.js`) organiza o sistema em torno de uma identidade única (`contas`) combinada com especializações por perfil e plano:
-- *Identidade e planos:* `contas` (`id`, `nome`, `email`, `senha_hash`, `papel`, `time_torcida`), `admins` (`conta_id`, `nivel`, `setor`), `organizadores` (`conta_id`, `documento`, `descricao_frota`, `contato_whatsapp`), `usuarios_free` (`conta_id`, `desde`) e `usuarios_premium` (`conta_id`, `stripe_customer_id`, `stripe_subscription_id`, `status_assinatura`, `ativo`, `data_assinatura`).
-- *Núcleo de caravanas e vendas:* `tipos_evento`, `eventos` (`tipo_id`, `titulo`, `data_evento`, `local_evento`), `caravanas` (`organizador_id`, `evento_id`, `cidade_saida`, `ponto_encontro`, `valor_passagem`, `vagas_totais`, `imagem_object_key`, `abertura_vendas_em`), `reservas` (`passageiro_id`, `caravana_id`, `cupom_id`, `valor_pago`, `status`, `stripe_session_id`), `cupons` (`codigo`, `percentual_desconto`, `ativo`, `validade`, `usos_maximos`) e `brindes_premios_sorteios` (`caravana_id`, `ganhador_free_id`, `ganhador_premium_id`, `descricao`).
-- *Infraestrutura relacional, logs e objetos:* `sessions` (`express-mysql-session`), `reset_tokens` (tokens SHA/aleatórios com expiração de 30 minutos para recuperação de senha via Brevo), Redis Stream `auditoria:logs` e buckets `avatars` e `caravanas` no MinIO.
+- *Identidade e planos:* `contas` (`id`, `nome`, `email`, `senha_hash`, `papel`, `time_torcida`, `avatar_url`, `criado_em`), `admins` (`conta_id`, `nivel`, `setor`, `desde`), `organizadores` (`conta_id`, `documento`, `descricao_frota`, `contato_whatsapp`), `usuarios_free` (`conta_id`, `desde`) e `usuarios_premium` (`conta_id`, `stripe_customer_id`, `stripe_subscription_id`, `status_assinatura`, `data_assinatura`, `ativo`).
+- *Núcleo de caravanas e vendas:* `tipos_evento` (`id`, `nome`, `somente_admin`), `eventos` (`id`, `tipo_evento_id`, `nome`, `local`, `pais`, `data_evento`, `competicao`, `valor_ingresso`, `api_partida_id`, `escudo_mandante`, `escudo_visitante`, `criado_por`), `caravanas` (`id`, `evento_id`, `organizador_id`, `vagas_totais`, `preco`, `data_saida`, `local_saida`, `cidade_saida`, `abertura_vendas_em`, `foto_url`, `status`), `reservas` (`id`, `caravana_id`, `usuario_free_id`, `usuario_premium_id`, `status_pagamento`, `cupom_id`, `desconto`, `valor_total`, `stripe_session_id`, `stripe_payment_intent`, `expira_em`, com restrição `CHECK chk_reserva_um_usuario` garantindo exatamente um titular Free ou Premium), `cupons` (`id`, `codigo`, `descricao`, `desconto_percentual`, `caravana_id`, `usuario_premium_id`, `usado`, `validade`) e `brindes_premios_sorteios` (`id`, `tipo`, `nome`, `descricao`, `caravana_id`, `data_sorteio`, `ganhador_free_id`, `ganhador_premium_id`, com `CHECK chk_brinde_ganhador_unico`).
+- *Infraestrutura relacional, logs e objetos:* `sessions` (`express-mysql-session`), `reset_tokens` (`id`, `token`, `usuario_id`, `expira_em`, `usado`, expirando em 30 minutos para recuperação de senha via Brevo), Redis Stream `auditoria:logs` e buckets `avatars` e `caravanas` no MinIO.
 
 == Segurança
 #table(
@@ -246,7 +250,7 @@ O banco relacional MariaDB (`db/001_dominio.sql` e migrações automáticas de i
   [Ver/editar dados de outro usuário ou outra frota], [sim (admin)], [não], [não],
 )
 
-O isolamento entre usuários ocorre em todas as consultas autenticadas: rotas de passageiros filtram explicitamente por `WHERE passageiro_id = req.usuario.id` (e só permitem cancelar a própria reserva), enquanto rotas de organizadores filtram por `WHERE organizador_id = req.usuario.id`, impedindo alteração ou visualização de reservas e frotas de terceiros (retornando HTTP `403` ou `404` quando outro ID é informado). O papel (`papel`) é reconsultado no MariaDB em cada requisição pelo middleware `carregarUsuario` — não ficando preso apenas em cookie/sessão estática.
+O isolamento entre usuários ocorre em todas as consultas autenticadas: na listagem de reservas, a query filtra explicitamente por `WHERE r.usuario_free_id = ? OR r.usuario_premium_id = ?`; nas ações individuais sobre uma reserva (visualização, abertura de pagamento ou cancelamento), o backend calcula o titular real via `COALESCE(r.usuario_premium_id, r.usuario_free_id) AS dono_id` e compara `dono_id !== req.usuario.id` (bloqueando com HTTP `403` e registrando `tentativa_acesso_reserva_alheia` ou `tentativa_negada_403` quando não é admin). Da mesma forma, cupons filtram por `WHERE usuario_premium_id = ?` e alterações de caravanas exigem `caravana.organizador_id === req.usuario.id` (ou papel `admin`). O papel (`papel`) é reconsultado no MariaDB em cada requisição pelo middleware `carregarUsuario` — não ficando preso apenas em cookie/sessão estática.
 
 Entre os controles adicionais implementados estão: hash de senhas com `bcrypt` (fator de custo `12`), blindagem contra *Mass Assignment* na rota `POST /register` do `auth-service` (toda conta pública nasce obrigatoriamente como `passageiro` no plano Free), restrição de login administrativo apenas via atalho `F2` (`via_atalho_f2`) no `auth-service`, cabeçalhos de segurança com `helmet` e CSP, limitação de taxa com `express-rate-limit` e verificação criptográfica `stripe-signature` no webhook. Todos os segredos ficam isolados nas variáveis de ambiente da stack do Portainer, mantendo apenas os nomes das chaves em `.env.example`.
 
@@ -299,8 +303,13 @@ Entre as principais decisões técnicas e limitações atuais do SaaS estão:
 )[
   *O que foi feito.* Ainda na base do catálogo de filmes (`Tom_Hanks`), foi implementado o fluxo inicial de assinatura do Plano Premium em modo de teste do Stripe. Foram criadas rotas no backend para gerar a *Checkout Session* do Stripe, receber o webhook oficial validando a assinatura criptográfica (`STRIPE_WEBHOOK_SECRET`) e atualizar o status do usuário no MariaDB para premium, liberando recursos exclusivos diretamente na interface.
 
-  As entregas de código ocorreram no dia 09/10/2026 nos commits `d82e893`, `742705c`, `76620ef` e no commit final `e658b755b8eacce1d8bae7d1925ae00d2b68f7d8` (`09/10/2026 16:33`), acompanhados da abertura da #link("https://github.com/YagoMartins77/Tom_Hanks/issues/6")[issue \#6 no repositório Tom_Hanks] às `16:34` (UTC-3).
+  As entregas de código ocorreram no dia 09/10/2026 nos commits `d82e893`, `742705c`, `76620ef` (`09/10/2026 16:33`) e `e658b755b8eacce1d8bae7d1925ae00d2b68f7d8`, acompanhados da abertura da #link("https://github.com/YagoMartins77/Tom_Hanks/issues/6")[issue \#6 no repositório Tom_Hanks] às `16:34` (UTC-3).
 
+  #grid(
+    columns: (1fr, 1fr), gutter: 0.4cm,
+    evidencia([Atividade 7 — Print dos commits no GitHub (`09/10/2026 16:33`)], arquivo: "prints/commit_1_atv7.png"),
+    evidencia([Atividade 7 — Issue \#6 no repositório `Tom_Hanks` (`09/10/2026 16:34`)], arquivo: "prints/issue_1_atv7.png"),
+  )
   #evidencia([Atividade 7 — Checkout do Stripe em modo de teste concluído], arquivo: "prints/atv7_1_checkout.png")
   #evidencia([Atividade 7 — Benefício premium funcionando na interface da aplicação], arquivo: "prints/atv7_2_beneficio.png")
   #evidencia([Atividade 7 — Registro do usuário marcado como premium no banco MariaDB após o webhook], arquivo: "prints/atv7_3_banco.png")
@@ -314,7 +323,7 @@ Entre as principais decisões técnicas e limitações atuais do SaaS estão:
   planejada: "16/10/2026",
   realizada: "24/10/2026 00:25",
   situacao: "entregue com atraso",
-  evidencia: "GitHub (Tom_Hanks) — commits 78b7e05 e 71dc4be, DOCUMENTACAO.md, README.md e issue #7",
+  evidencia: "GitHub (Tom_Hanks) — prints dos commits (71dc4be) e da issue #7 (24/10/2026 00:33), DOCUMENTACAO.md e README.md",
   url: "https://github.com/YagoMartins77/Tom_Hanks/issues/7",
 )[
   *Justificativa do atraso.* A entrega prevista para `16/10/2026` foi concluída apenas em `24/10/2026` *por falha interna* na organização do cronograma e publicação da documentação no repositório.
@@ -326,6 +335,12 @@ Entre as principais decisões técnicas e limitações atuais do SaaS estão:
   - Commit final: #link("https://github.com/YagoMartins77/Tom_Hanks/commit/71dc4beb7e125e5c28929405753f7f052e9d1418")[`71dc4be` (`24/10/2026 00:25`)] (e commit `78b7e05` em `00:01`);
   - Arquivos documentais: #link("https://github.com/YagoMartins77/Tom_Hanks/blob/71dc4beb7e125e5c28929405753f7f052e9d1418/README.md")[`README.md`] e #link("https://github.com/YagoMartins77/Tom_Hanks/blob/71dc4beb7e125e5c28929405753f7f052e9d1418/DOCUMENTACAO.md")[`DOCUMENTACAO.md`].
 
+  #grid(
+    columns: (1fr, 1fr), gutter: 0.4cm,
+    evidencia([Atividade 8 — Print dos commits no GitHub (`24/10/2026 00:25`)], arquivo: "prints/commit_2_atv8.png"),
+    evidencia([Atividade 8 — Issue \#7 no repositório `Tom_Hanks` (`24/10/2026 00:33`)], arquivo: "prints/issue_2_atv8.png"),
+  )
+
   *Dificuldades e como foram resolvidas.* O maior desafio foi levantar cada tabela, rota e dependência oculta no código que havia sido construído incrementalmente ao longo do bimestre e separá-las com clareza entre IaaS, PaaS e SaaS. A leitura direta dos arquivos `server.js`, `docker-compose.yml` e das configurações do Portainer permitiu fechar uma documentação fiel ao ambiente real em execução.
 ]
 
@@ -335,17 +350,36 @@ Entre as principais decisões técnicas e limitações atuais do SaaS estão:
   planejada: "23/10/2026",
   realizada: "11/11/2026 18:21",
   situacao: "entregue com atraso",
-  evidencia: "GitHub (Caravanas-Hub) — issue #6 (@siriani), backlog (#1 a #5), README.md do produto e prints",
+  evidencia: "GitHub (Caravanas-Hub) — issue #6 (@siriani), backlog (#1 a #5), README.md do produto e prints de commits e issues com data/hora",
   url: "https://github.com/YagoMartins77/Caravanas-Hub/issues/6",
 )[
   *Justificativa do atraso.* A entrega prevista para `23/10/2026` foi realizada em `11/11/2026` *por falha interna* no planejamento da transição do projeto antigo para o novo produto.
 
   *O que foi feito.* Todo o histórico Git do projeto `Tom_Hanks` foi preservado e espelhado (`git clone --bare` + `git push --mirror`) para o repositório definitivo do novo SaaS: `https://github.com/YagoMartins77/Caravanas-Hub`. Em seguida, o `README.md` foi completamente reescrito para definir o plano de negócio do *Caravana's Hub*: dor do mercado (dificuldade de torcedores de Marília e região organizarem transporte + ingresso para jogos, F1 e MMA em São Paulo), persona do passageiro e do organizador, *Lean Canvas*, modelo de receita freemium (*Free* vs *Pro R\$ 19,90/mês*), arquitetura alvo e mapa de reaproveitamento entre a base anterior e o novo domínio.
 
-  Também foram abertas as 5 issues de backlog do produto (`#1` a `#5`) antes do registro da entrega formal na #link("https://github.com/YagoMartins77/Caravanas-Hub/issues/6")[issue \#6] (`11/11/2026 18:21` UTC-3).
+  Também foram abertas as 5 issues de backlog do produto (`#1` a `#5`, às `18:11–18:13` de `11/11/2026`) antes do registro da entrega formal na #link("https://github.com/YagoMartins77/Caravanas-Hub/issues/6")[issue \#6] (`11/11/2026 18:21` UTC-3).
 
-  #evidencia([Atividade 9 — Backlog estruturado nas issues \#1 a \#6 do repositório Caravanas-Hub], arquivo: "prints/atv9_1_issues.png")
-  #evidencia([Atividade 9 — Histórico de commits preservado após o espelhamento do repositório], arquivo: "prints/atv9_2_commits.png")
+  #grid(
+    columns: (1fr, 1fr), gutter: 0.4cm,
+    evidencia([Atividade 9 — Backlog de issues e entrega no repositório novo], arquivo: "prints/atv9_1_issues.png"),
+    evidencia([Atividade 9 — Histórico de commits espelhado (`Caravanas-Hub`)], arquivo: "prints/atv9_2_commits.png"),
+  )
+  #evidencia([Atividade 9 — Print dos commits no GitHub após o espelhamento], arquivo: "prints/commit_3_atv9.png")
+  #grid(
+    columns: (1fr, 1fr), gutter: 0.4cm,
+    evidencia([Atividade 9 — Issue \#1 (`11/11/2026 18:11 GMT-3`)], arquivo: "prints/issue_3_atv9.png"),
+    evidencia([Atividade 9 — Issue \#2 (`11/11/2026`)], arquivo: "prints/issue_4_atv9.png"),
+  )
+  #grid(
+    columns: (1fr, 1fr), gutter: 0.4cm,
+    evidencia([Atividade 9 — Issue \#3 (`11/11/2026`)], arquivo: "prints/issue_5_atv9.png"),
+    evidencia([Atividade 9 — Issue \#4 (`11/11/2026`)], arquivo: "prints/issue_6_atv9.png"),
+  )
+  #grid(
+    columns: (1fr, 1fr), gutter: 0.4cm,
+    evidencia([Atividade 9 — Issue \#5 (`11/11/2026`)], arquivo: "prints/issue_7_atv9.png"),
+    evidencia([Atividade 9 — Issue de entrega \#6 (`11/11/2026 18:21 GMT-3`)], arquivo: "prints/issue_8_atv9.png"),
+  )
 
   *Dificuldades e como foram resolvidas.* O ponto crítico foi executar o espelhamento preservando todos os commits das atividades 1 a 8 sem corromper referências nem perder o vínculo do projeto anterior, além de modelar os benefícios do plano Pro (antecedência, cupons e sorteios) de forma financeiramente viável no contexto de excursões esportivas. Testar o `git push --mirror` em um repositório recém-criado resolveu a migração do histórico de forma limpa.
 ]
@@ -356,15 +390,20 @@ Entre as principais decisões técnicas e limitações atuais do SaaS estão:
   planejada: "06/11/2026",
   realizada: "13/11/2026 18:57",
   situacao: "entregue com atraso",
-  evidencia: "GitHub (Caravanas-Hub) — issue #7 (@siriani), URL no ar e 8 prints do sistema, RBAC 403, logs Redis, MinIO e Portainer",
+  evidencia: "GitHub (Caravanas-Hub) — commit 840ef57 / 417cd40, issue #7 (13/11/2026 18:57), URL no ar e prints do sistema, RBAC 403, logs Redis, MinIO e Portainer",
   url: "https://github.com/YagoMartins77/Caravanas-Hub/issues/7",
 )[
   *Justificativa do atraso.* A entrega prevista para `06/11/2026` foi concluída em `13/11/2026` *por falha interna* durante a migração completa do domínio e ajustes de deploy em produção.
 
   *O que foi feito.* O antigo catálogo de filmes foi integralmente substituído pelo domínio do *Caravana's Hub* em `https://yago-martins-isw055.lapps.studio`. A migração SQL (`db/001_dominio.sql`) removeu `favoritos` e `comentarios` e criou as tabelas `contas`, `admins`, `usuarios_free`, `usuarios_premium`, `organizadores`, `tipos_evento`, `eventos`, `caravanas`, `reservas`, `cupons` e `brindes_premios_sorteios`.
 
-  Na camada de aplicação (`caravanas-service` e `auth-service`), foram implementados: landing page comercial do produto, listagem de caravanas com cálculo transparente de custos e escudos via API Futebol, controle de acesso por papéis (`admin`, `organizador`, `passageiro`) retornando HTTP `403` com auditoria no Redis em tentativas não autorizadas, isolamento de consultas por `passageiro_id` e `organizador_id`, upload de fotos dos veículos no *MinIO*, eventos de negócio no `log-service` e deploy da stack atualizada no *Portainer*.
+  Na camada de aplicação (`caravanas-service` e `auth-service`), foram implementados: landing page comercial do produto, listagem de caravanas com cálculo transparente de custos e escudos via API Futebol, controle de acesso por papéis (`admin`, `organizador`, `passageiro`) retornando HTTP `403` com auditoria no Redis em tentativas não autorizadas, isolamento de consultas pelo titular da reserva (`dono_id` via `usuario_free_id`/`usuario_premium_id`) e por `organizador_id`, upload de fotos dos veículos no *MinIO*, eventos de negócio no `log-service` e deploy da stack atualizada no *Portainer*.
 
+  #grid(
+    columns: (1fr, 1fr), gutter: 0.4cm,
+    evidencia([Atividade 10 — Print dos commits no GitHub (`13/11/2026 18:01 GMT-3`)], arquivo: "prints/commit_4_atv10.png"),
+    evidencia([Atividade 10 — Issue \#7 no repositório `Caravanas-Hub` (`13/11/2026 18:57 GMT-3`)], arquivo: "prints/issue_9_atv10.png"),
+  )
   #evidencia([Atividade 10 — Landing page pública do Caravana's Hub no ar], arquivo: "prints/atv10_1_landing.png")
   #evidencia([Atividade 10 — Listagem de caravanas com cálculo transparente e reserva], arquivo: "prints/atv10_2_caravanas.png")
   #grid(
@@ -392,13 +431,18 @@ Entre as principais decisões técnicas e limitações atuais do SaaS estão:
   planejada: "13/11/2026",
   realizada: "13/11/2026 23:32",
   situacao: "entregue",
-  evidencia: "GitHub (Caravanas-Hub) — issue #8 (@siriani), commit 30aa716 e 5 prints do cartão 4242, Stripe, webhook, bloqueio 403 e admin",
+  evidencia: "GitHub (Caravanas-Hub) — commit 30aa716 (21:19), issue #8 (23:32) e prints do cartão 4242, Stripe, webhook, bloqueio 403 e painel MRR",
   url: "https://github.com/YagoMartins77/Caravanas-Hub/issues/8",
 )[
   *O que foi feito.* Foi consolidado o ciclo SaaS completo de planos e assinatura recorrente no *Caravana's Hub*. O plano Pro (R\$ 19,90/mês) ganhou fluxo completo de assinatura via Stripe Checkout (`mode: subscription`), validação de 4 eventos de webhook (`checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted` e `invoice.payment_failed`) com verificação de assinatura e idempotência por `event.id`, além de suporte ao *Stripe Billing Portal* e cancelamento retornando o usuário automaticamente para `usuarios_free`.
 
-  Na API de negócio, foram aplicadas as travas reais por plano: o usuário *Free* possui limite de `2` reservas ativas por mês (`LIMITE_RESERVAS_MES_FREE = 2`), bloqueando tentativas excedentes com HTTP `403`, e o assinante *Pro* passa a acessar pré-venda com `3` dias de antecedência (`ANTECEDENCIA_PRO_DIAS = 3`), cupons promocionais e sorteios de brindes. O painel administrativo também foi concluído com gestão de eventos, criação de cupons, realização de sorteios, métricas SaaS (Free vs Pro e receita estimada) e visualização/exclusão de logs do Redis. A entrega foi formalizada na #link("https://github.com/YagoMartins77/Caravanas-Hub/issues/8")[issue \#8] em `13/11/2026 23:32` (UTC-3).
+  Na API de negócio, foram aplicadas as travas reais por plano: o usuário *Free* possui limite de `2` reservas ativas por mês (`LIMITE_RESERVAS_MES_FREE = 2`), bloqueando tentativas excedentes com HTTP `403`, e o assinante *Pro* passa a acessar pré-venda com `3` dias de antecedência (`ANTECEDENCIA_PRO_DIAS = 3`), cupons promocionais e sorteios de brindes. O painel administrativo também foi concluído com gestão de eventos, criação de cupons, realização de sorteios, métricas SaaS (Free vs Pro e MRR de teste) e visualização/exclusão de logs do Redis. A entrega foi formalizada na #link("https://github.com/YagoMartins77/Caravanas-Hub/issues/8")[issue \#8] em `13/11/2026 23:32` (UTC-3).
 
+  #grid(
+    columns: (1fr, 1fr), gutter: 0.4cm,
+    evidencia([Atividade 11 — Print do commit `30aa716` (`13/11/2026 21:19 GMT-3`)], arquivo: "prints/commit_5_atv11.png"),
+    evidencia([Atividade 11 — Issue \#8 no repositório `Caravanas-Hub` (`13/11/2026 23:32 GMT-3`)], arquivo: "prints/issue_10_atv11.png"),
+  )
   #grid(
     columns: (1fr, 1fr), gutter: 0.4cm,
     evidencia([Atividade 11 — Assinatura Pro concluída com cartão de teste 4242], arquivo: "prints/atv11_1_cartao4242.png"),
@@ -406,12 +450,16 @@ Entre as principais decisões técnicas e limitações atuais do SaaS estão:
   )
   #grid(
     columns: (1fr, 1fr), gutter: 0.4cm,
-    evidencia([Atividade 11 — Webhook recebido e plano atualizado automaticamente], arquivo: "prints/atv11_3_webhook.png"),
+    evidencia([Atividade 11 — Entregas de webhook no Stripe (falhas 400 recuperadas em 200 OK)], arquivo: "prints/atv11_3_webhook.png"),
     evidencia([Atividade 11 — Limite do plano Free bloqueando reserva excedente (HTTP 403)], arquivo: "prints/atv11_4_limite403.png"),
   )
-  #evidencia([Atividade 11 — Painel administrativo com gestão SaaS, cupons, sorteios e auditoria], arquivo: "prints/atv11_5_admin.png")
+  #grid(
+    columns: (1fr, 1fr), gutter: 0.4cm,
+    evidencia([Atividade 11 — Painel administrativo com gestão SaaS e cupons], arquivo: "prints/atv11_5_admin.png"),
+    evidencia([Atividade 11 — Métricas SaaS (MRR de teste) e auditoria no Redis], arquivo: "prints/atv11_6_mrr.png"),
+  )
 
-  *Dificuldades e como foram resolvidas.* O principal desafio técnico foi garantir a consistência do ciclo completo entre assinatura recorrente, compra de passagem com cupom de desconto no Stripe Checkout, cancelamento do plano Pro e bloqueio automático tanto na criação da reserva gratuita acima do limite quanto em tentativas de compra antes da abertura para o plano Free. A unificação dos helpers de verificação de plano (`carregarUsuario`) e a gravação automática do evento no Redis em cada bloqueio (`limite_free_atingido`, `limite_prevenda_pro`) tornaram os testes transparentes e auditáveis.
+  *Dificuldades e como foram resolvidas.* As primeiras entregas do webhook (`customer.subscription.deleted`, às `23:00:26` e `23:00:41`, visíveis no print do Stripe Workbench) falharam com HTTP `400` (`Webhook Error: No signatures found matching the expected signature for payload`) porque o valor de `STRIPE_WEBHOOK_SECRET` configurado no Portainer estava desatualizado em relação ao destino criado no Stripe; após corrigir a variável de ambiente na stack do Portainer e reimplantar o serviço, o Stripe reenviou o evento e a entrega foi recuperada com sucesso (`200 OK` às `23:15:02`). Além disso, a unificação das verificações de plano em `carregarUsuario` e o registro automático dos bloqueios no Redis (`limite_free_atingido`, `limite_prevenda_pro`) asseguraram consistência entre frontend, API e auditoria.
 ]
 
 // ============================================================
@@ -424,13 +472,14 @@ Os pontos mais desafiadores foram reorganizar o esquema relacional completo na m
 Se o projeto fosse reiniciado ou levado agora para um ambiente comercial real, os próximos passos prioritários seriam persistir a tabela de idempotência de webhooks no próprio MariaDB (em vez de cache apenas em memória), implementar uma suíte de testes automatizados de integração cobrindo RBAC e pagamentos antes de cada deploy e estruturar um pipeline CI/CD no GitHub Actions com endpoint `/health` monitorado para eliminar atualizações manuais na stack do Portainer.
 
 // ============================================================
+#block(breakable: false)[
 = Declaração de autoria
-// ============================================================
 Declaro que este relatório foi elaborado por mim, individualmente, e que as evidências apresentadas correspondem a entregas de minha autoria, verificáveis nos links informados.
 
-#v(1.5cm)
+#v(1.2cm)
 #grid(
   columns: (1fr, 1fr), gutter: 2cm,
   align(center)[#line(length: 100%, stroke: 0.5pt) \ #aluno],
   align(center)[#line(length: 100%, stroke: 0.5pt) \ Pompeia, #data-relatorio],
 )
+]
