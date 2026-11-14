@@ -530,28 +530,46 @@ async function cancelarReserva(id, status) {
 // ─── Pro, cupons e brindes ───────────────────────────────────────────────────
 async function carregarPro() {
   const dias = estado.me.antecedencia_pro_dias || 3;
+  const limiteFree = estado.me.limite_reservas_mes_free || 2;
+  const statusAssinatura = estado.me.status_assinatura || 'free';
+  const avisoPastDue = statusAssinatura === 'past_due'
+    ? `<div class="msg err" style="margin-bottom:1rem;">
+         <i class="fas fa-triangle-exclamation"></i> <strong>Pagamento da renovação pendente (past_due):</strong>
+         a cobrança mensal da sua assinatura falhou e seus benefícios Pro estão suspensos. Regularize seu cartão no <strong>Portal do Cliente</strong> abaixo.
+       </div>`
+    : '';
+
   $('#boxPro').innerHTML = ehPro() ? `
-    <div class="plan pro" style="max-width:640px;">
-      <h3><i class="fas fa-crown" style="color:var(--gold)"></i> Você é Pro</h3>
+    ${avisoPastDue}
+    <div class="plan pro" style="max-width:680px;">
+      <h3><i class="fas fa-crown" style="color:var(--gold)"></i> Você é Pro <span class="badge badge-ok" style="font-size:.75rem;margin-left:.4rem;">Assinatura ativa (R$ 19,90/mês)</span></h3>
       <ul style="margin:1rem 0;">
-        <li><i class="fas fa-bolt"></i> Vê e compra caravanas ${dias} dias antes do plano Free</li>
-        <li><i class="fas fa-percent"></i> Recebe cupons de desconto do organizador</li>
-        <li><i class="fas fa-gift"></i> Participa dos sorteios de brindes e prêmios</li>
+        <li><i class="fas fa-infinity"></i> <span><strong>Reservas ilimitadas no mês</strong> (o plano Free é limitado a ${limiteFree} reservas/mês na API)</span></li>
+        <li><i class="fas fa-bolt"></i> <span>Vê e compra caravanas <strong>${dias} dias antes</strong> do plano Free</span></li>
+        <li><i class="fas fa-percent"></i> <span>Recebe e aplica <strong>cupons de desconto</strong> na viagem</span></li>
+        <li><i class="fas fa-gift"></i> <span>Participa dos sorteios de brindes e upload de avatar até <strong>10 MB</strong></span></li>
       </ul>
-      <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.4rem;">
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.6rem;">
+        <button class="btn btn-gold btn-sm" data-action="portal-pro"><i class="fas fa-up-right-from-square"></i> Gerenciar assinatura (Portal do Cliente Stripe)</button>
         <button class="btn btn-danger btn-sm" data-action="cancelar-pro"><i class="fas fa-ban"></i> Cancelar assinatura Pro</button>
       </div>
     </div>` : `
-    <div class="plan pro" style="max-width:640px;">
+    ${avisoPastDue}
+    <div class="plan pro" style="max-width:680px;">
       <h3><i class="fas fa-crown" style="color:var(--gold)"></i> Caravana's Hub Pro</h3>
       <div class="price">R$ 19,90 <small>/ mês</small></div>
+      <p class="muted small" style="margin:.4rem 0 .8rem;">Seu plano atual é <strong>Free (R$ 0,00)</strong> — limitado na API a <strong>${limiteFree} reservas por mês</strong>, sem pré-venda e sem cupons.</p>
       <ul>
+        <li><i class="fas fa-infinity"></i> <span><strong>Reservas ilimitadas:</strong> sem o limite de ${limiteFree} reservas/mês do plano Free</span></li>
         <li><i class="fas fa-bolt"></i> <span><strong>Acesso antecipado:</strong> caravanas ${dias} dias antes do Free</span></li>
         <li><i class="fas fa-percent"></i> <span><strong>Cupons de desconto</strong> exclusivos na viagem</span></li>
-        <li><i class="fas fa-gift"></i> <span>Concorra a <strong>brindes</strong> em toda caravana</span></li>
+        <li><i class="fas fa-gift"></i> <span>Concorra a <strong>brindes</strong> em toda caravana e avatar até 10 MB</span></li>
       </ul>
       <div style="display:flex;gap:.6rem;flex-wrap:wrap;">
-        <button class="btn btn-gold" data-action="assinar-pro"><i class="fab fa-cc-stripe"></i> Assinar com Stripe</button>
+        <button class="btn btn-gold" data-action="assinar-pro"><i class="fab fa-cc-stripe"></i> Assinar com Stripe (R$ 19,90/mês)</button>
+        ${statusAssinatura === 'past_due' || statusAssinatura === 'canceled'
+          ? `<button class="btn btn-ghost btn-sm" data-action="portal-pro"><i class="fas fa-up-right-from-square"></i> Gerenciar assinatura (Billing Portal)</button>`
+          : ''}
         <button class="btn btn-ghost btn-sm" data-action="sincronizar-pro">Já assinei, verificar</button>
       </div>
     </div>`;
@@ -616,7 +634,49 @@ async function verPassageiros(caravanaId) {
 }
 
 // ─── Admin ───────────────────────────────────────────────────────────────────
+async function carregarMetricasSaaS() {
+  const box = $('#adminMetricasSaaS');
+  if (!box) return;
+  try {
+    const m = await api('/api/admin/metricas-saas');
+    box.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.9rem;">
+        <div style="background:var(--bg-2);border:1px solid var(--line);border-radius:14px;padding:1rem;">
+          <div class="muted small">Usuários por Plano</div>
+          <div style="font-size:1.35rem;font-weight:800;margin-top:.25rem;">
+            <span style="color:var(--text);">${m.usuarios_free} Free</span> · <span style="color:var(--gold);">${m.usuarios_pro} Pro</span>
+          </div>
+          <div class="muted small" style="margin-top:.2rem;">Total cadastrado: ${m.total_usuarios} contas</div>
+        </div>
+        <div style="background:var(--bg-2);border:1px solid var(--line);border-radius:14px;padding:1rem;">
+          <div class="muted small">Assinaturas Ativas (Stripe)</div>
+          <div style="font-size:1.45rem;font-weight:800;color:var(--green);margin-top:.25rem;">
+            ${m.assinaturas_ativas} <span class="muted small" style="font-weight:500;">ativas</span>
+          </div>
+          <div class="muted small" style="margin-top:.2rem;">Inadimplentes: ${m.assinaturas_inadimplentes} · Canceladas: ${m.assinaturas_canceladas}</div>
+        </div>
+        <div style="background:var(--bg-2);border:1px solid var(--line);border-radius:14px;padding:1rem;">
+          <div class="muted small">MRR de Teste (Receita Mensal)</div>
+          <div style="font-size:1.45rem;font-weight:800;color:var(--gold);margin-top:.25rem;">
+            ${brl(m.mrr_teste)}<span class="muted small" style="font-weight:500;">/mês</span>
+          </div>
+          <div class="muted small" style="margin-top:.2rem;">${m.assinaturas_ativas} × ${brl(m.preco_pro_mensal)} (Plano Pro)</div>
+        </div>
+        <div style="background:var(--bg-2);border:1px solid var(--line);border-radius:14px;padding:1rem;">
+          <div class="muted small">Último Evento no Log (Redis)</div>
+          <div style="font-size:.92rem;font-weight:700;margin-top:.35rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            ${m.ultimos_eventos?.[0] ? `<span class="badge badge-ok">${esc(m.ultimos_eventos[0].acao)}</span>` : '<span class="muted">Sem eventos</span>'}
+          </div>
+          <div class="muted small" style="margin-top:.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            ${m.ultimos_eventos?.[0] ? esc(m.ultimos_eventos[0].detalhes) : 'Veja a aba Auditoria'}
+          </div>
+        </div>
+      </div>`;
+  } catch {}
+}
+
 function abrirAbaAdmin(tab) {
+  carregarMetricasSaaS();
   $$('#adminTabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   $$('.atab').forEach(a => a.classList.toggle('hidden', a.id !== tab));
   ({
@@ -943,6 +1003,10 @@ const acoes = {
     try { const r = await api('/api/stripe/checkout', { method: 'POST' }); window.location.href = r.url; }
     catch (err) { toast(err.message, 'err'); }
   },
+  'portal-pro': async () => {
+    try { const r = await api('/api/stripe/portal', { method: 'POST' }); window.location.href = r.url; }
+    catch (err) { toast(err.message, 'err'); }
+  },
   'sincronizar-pro': async () => {
     try { const r = await api('/api/stripe/sincronizar', { method: 'POST' }); toast(r.message, r.premium ? 'ok' : 'err'); await carregarMe(); carregarPro(); }
     catch (err) { toast(err.message, 'err'); }
@@ -990,6 +1054,7 @@ const acoes = {
       await api(`/api/admin/usuarios/${id}/promover-pro`, { method: 'POST' });
       toast(`Usuário #${id} promovido a Pro com 1-Click!`);
       adminUsuarios();
+      carregarMetricasSaaS();
     } catch (err) { toast(err.message, 'err'); }
   },
   'remover-pro': async (id) => {
@@ -997,6 +1062,7 @@ const acoes = {
       await api(`/api/admin/usuarios/${id}/remover-pro`, { method: 'POST' });
       toast(`Plano Pro desativado para o usuário #${id}.`);
       adminUsuarios();
+      carregarMetricasSaaS();
     } catch (err) { toast(err.message, 'err'); }
   }
 };
@@ -1054,6 +1120,11 @@ async function tratarRetornoStripe() {
     return 'pro';
   }
   if (qs.get('pro') === 'cancelado') { limpar(); return 'pro'; }
+  if (qs.get('pro') === 'portal') {
+    limpar();
+    await api('/api/stripe/sincronizar', { method: 'POST' }).catch(() => {});
+    return 'pro';
+  }
   return null;
 }
 

@@ -46,10 +46,12 @@ CREATE TABLE IF NOT EXISTS usuarios_free (
 -- 5. usuarios_premium — assinantes do plano Pro (Stripe)
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS usuarios_premium (
-    conta_id              INT PRIMARY KEY,
-    stripe_customer_id    VARCHAR(255) NULL,
-    data_assinatura       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    ativo                 TINYINT(1) NOT NULL DEFAULT 1,
+    conta_id                 INT PRIMARY KEY,
+    stripe_customer_id       VARCHAR(255) NULL,
+    stripe_subscription_id   VARCHAR(255) NULL,
+    status_assinatura        VARCHAR(40) NOT NULL DEFAULT 'active',
+    data_assinatura          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ativo                    TINYINT(1) NOT NULL DEFAULT 1,
     CONSTRAINT fk_premium_conta FOREIGN KEY (conta_id) REFERENCES contas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 

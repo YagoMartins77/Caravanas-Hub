@@ -40,7 +40,10 @@ const CIDADES_ALTA_PAULISTA = [
 ];
 const TIPOS_EVENTO = ['futebol', 'corrida', 'mma'];
 const MAPA_TIPOS = { futebol: 1, corrida: 2, mma: 3 };
+const MAPA_TIPOS_INV = { 1: 'futebol', 2: 'corrida', 3: 'mma' };
 const ANTECEDENCIA_PRO_DIAS = Number(process.env.ANTECEDENCIA_PRO_DIAS) || 3;
+const LIMITE_RESERVAS_MES_FREE = Number(process.env.LIMITE_RESERVAS_MES_FREE) || 2;
+const PRECO_PRO_MENSAL = 19.90;
 
 // ─── API Futebol ──────────────────────────────────────────
 const API_FUTEBOL_URL = 'https://api.api-futebol.com.br/v1';
@@ -217,6 +220,8 @@ async function migrarBanco() {
   }
   console.log(`[DB] Migração 001_dominio.sql: ${ok}/${statements.length} comandos aplicados.`);
   try {
+    await pool.query("ALTER TABLE usuarios_premium ADD COLUMN stripe_subscription_id VARCHAR(255) NULL").catch(() => {});
+    await pool.query("ALTER TABLE usuarios_premium ADD COLUMN status_assinatura VARCHAR(40) NOT NULL DEFAULT 'active'").catch(() => {});
     await pool.query(
       "UPDATE contas SET senha_hash = '$2b$12$yGQCM76Kj4s3mTOroU8EE.Te3SMYO5P9wYCK7MqvwFC91Z/giyJ5O' WHERE senha_hash = '$2b$12$KkQ1/TfF.33z6gV7L3zZ3O4t29pG9.CqQxZgB47v1/t78yYkL002e'"
     );
@@ -271,16 +276,18 @@ async function gerarCupom(usuarioPremiumId, descontoPct, descricao, diasValidade
   return { id: res.insertId, codigo, descricao, desconto_percentual: descontoPct, caravana_id: caravanaId || null, usuario_premium_id: usuarioPremiumId, validade };
 }
 
-async function ativarPro(contaId, customerId, origem, ip = '') {
+async function ativarPro(contaId, customerId, subscriptionId = null, origem = 'Stripe', ip = '') {
   const [[antes]] = await pool.query('SELECT ativo FROM usuarios_premium WHERE conta_id = ?', [contaId]);
   const jaEraPro = Boolean(antes && antes.ativo == 1);
   await pool.query(
-    `INSERT INTO usuarios_premium (conta_id, stripe_customer_id, ativo)
-     VALUES (?, ?, 1)
+    `INSERT INTO usuarios_premium (conta_id, stripe_customer_id, stripe_subscription_id, status_assinatura, ativo)
+     VALUES (?, ?, ?, 'active', 1)
      ON DUPLICATE KEY UPDATE
        stripe_customer_id = COALESCE(VALUES(stripe_customer_id), stripe_customer_id),
+       stripe_subscription_id = COALESCE(VALUES(stripe_subscription_id), stripe_subscription_id),
+       status_assinatura = 'active',
        ativo = 1`,
-    [contaId, customerId || null]
+    [contaId, customerId || null, subscriptionId || null]
   );
   if (!jaEraPro) await registrarAuditoria(contaId, 'upgrade_pro', `Assinatura Pro ativada (${origem})`, ip);
 }
@@ -357,8 +364,11 @@ async function confirmarReservaPaga(sess, ip = '') {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STRIPE — Webhook (precisa do corpo bruto, por isso vem ANTES do express.json)
+// STRIPE — Webhook (4 eventos do ciclo de vida da assinatura + idempotência)
+// Precisa do corpo bruto, por isso vem ANTES do express.json
 // ─────────────────────────────────────────────────────────────────────────────
+const eventosWebhookProcessados = new Set();
+
 app.post('/api/stripe/webhook',
   express.raw({ type: 'application/json' }),
   async (req, res) => {
@@ -372,21 +382,90 @@ app.post('/api/stripe/webhook',
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
+    // Idempotência: se o mesmo event.id chegar duas vezes, não duplica o efeito
+    if (event.id && eventosWebhookProcessados.has(event.id)) {
+      return res.json({ received: true, idempotent: true });
+    }
+    if (event.id) {
+      eventosWebhookProcessados.add(event.id);
+      if (eventosWebhookProcessados.size > 2000) {
+        const first = eventosWebhookProcessados.values().next().value;
+        eventosWebhookProcessados.delete(first);
+      }
+    }
+
     try {
+      // 1. checkout.session.completed — Guarda customer e subscription e muda o plano pra Pro
       if (event.type === 'checkout.session.completed') {
         const sess = event.data.object;
         if (sess.mode === 'subscription') {
           const contaId = sess.client_reference_id || sess.metadata?.usuario_id;
-          if (contaId) await ativarPro(contaId, sess.customer, 'webhook Stripe');
+          const customerId = typeof sess.customer === 'string' ? sess.customer : sess.customer?.id;
+          const subscriptionId = typeof sess.subscription === 'string' ? sess.subscription : sess.subscription?.id;
+          if (contaId) await ativarPro(contaId, customerId, subscriptionId, 'webhook checkout.session.completed');
         } else if (sess.metadata?.tipo === 'passagem') {
           await confirmarReservaPaga(sess);
         }
       }
 
+      // 2. customer.subscription.updated — Atualiza o plano e o status da assinatura (active, past_due, canceled…)
+      if (event.type === 'customer.subscription.updated') {
+        const sub = event.data.object;
+        const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
+        const status = String(sub.status || 'active');
+        const ativo = ['active', 'trialing'].includes(status) ? 1 : 0;
+        const [[up]] = await pool.query(
+          'SELECT conta_id FROM usuarios_premium WHERE stripe_subscription_id = ? OR stripe_customer_id = ? LIMIT 1',
+          [sub.id, customerId]
+        );
+        if (up) {
+          await pool.query(
+            'UPDATE usuarios_premium SET stripe_subscription_id = ?, status_assinatura = ?, ativo = ? WHERE conta_id = ?',
+            [sub.id, status, ativo, up.conta_id]
+          );
+          if (!ativo) await pool.query('INSERT IGNORE INTO usuarios_free (conta_id) VALUES (?)', [up.conta_id]);
+          await registrarAuditoria(up.conta_id, 'assinatura_atualizada',
+            `Webhook customer.subscription.updated: status=${status} (ativo=${ativo})`);
+        }
+      }
+
+      // 3. customer.subscription.deleted — Volta o usuário pro Free
       if (event.type === 'customer.subscription.deleted') {
-        const customerId = event.data.object.customer;
-        await pool.query('UPDATE usuarios_premium SET ativo = 0 WHERE stripe_customer_id = ?', [customerId]);
-        console.log(`[Stripe] Assinatura cancelada para customer ${customerId}.`);
+        const sub = event.data.object;
+        const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
+        const [[up]] = await pool.query(
+          'SELECT conta_id FROM usuarios_premium WHERE stripe_subscription_id = ? OR stripe_customer_id = ? LIMIT 1',
+          [sub.id, customerId]
+        );
+        await pool.query(
+          "UPDATE usuarios_premium SET ativo = 0, status_assinatura = 'canceled' WHERE stripe_subscription_id = ? OR stripe_customer_id = ?",
+          [sub.id, customerId]
+        );
+        if (up) {
+          await pool.query('INSERT IGNORE INTO usuarios_free (conta_id) VALUES (?)', [up.conta_id]);
+          await registrarAuditoria(up.conta_id, 'assinatura_cancelada_webhook',
+            `Webhook customer.subscription.deleted: usuário voltou para o plano Free (customer ${customerId})`);
+        }
+      }
+
+      // 4. invoice.payment_failed — Marca a assinatura como inadimplente e derruba o Pro (não continua de graça)
+      if (event.type === 'invoice.payment_failed') {
+        const invoice = event.data.object;
+        const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
+        const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id;
+        const [[up]] = await pool.query(
+          'SELECT conta_id FROM usuarios_premium WHERE stripe_subscription_id = ? OR stripe_customer_id = ? LIMIT 1',
+          [subscriptionId || '', customerId || '']
+        );
+        await pool.query(
+          "UPDATE usuarios_premium SET ativo = 0, status_assinatura = 'past_due' WHERE stripe_subscription_id = ? OR stripe_customer_id = ?",
+          [subscriptionId || '', customerId || '']
+        );
+        if (up) {
+          await pool.query('INSERT IGNORE INTO usuarios_free (conta_id) VALUES (?)', [up.conta_id]);
+          await registrarAuditoria(up.conta_id, 'pagamento_renovacao_falhou',
+            `Webhook invoice.payment_failed: renovação recusada, assinatura marcada como inadimplente (past_due) e plano retornado ao Free`);
+        }
       }
     } catch (e) {
       console.error('[Stripe Webhook] Erro ao processar evento:', e.message);
@@ -428,7 +507,7 @@ async function carregarUsuario(req, res, next) {
   try {
     const [rows] = await pool.query(`
       SELECT c.id, c.nome, c.email, c.papel, c.time_torcida, c.avatar_url,
-             up.ativo AS pro_ativo, up.stripe_customer_id
+             up.ativo AS pro_ativo, up.stripe_customer_id, up.stripe_subscription_id, up.status_assinatura
         FROM contas c
         LEFT JOIN usuarios_premium up ON up.conta_id = c.id
        WHERE c.id = ?
@@ -447,11 +526,14 @@ async function carregarUsuario(req, res, next) {
       time_torcida: u.time_torcida,
       avatar_url: u.avatar_url,
       stripe_customer_id: u.stripe_customer_id,
+      stripe_subscription_id: u.stripe_subscription_id,
+      status_assinatura: u.status_assinatura || (u.pro_ativo == 1 ? 'active' : 'free'),
       pro: u.pro_ativo == 1
     };
     req.session.usuario.role = u.papel;
     req.session.usuario.papel = u.papel;
     req.session.usuario.premium = req.usuario.pro ? 1 : 0;
+    req.session.usuario.status_assinatura = req.usuario.status_assinatura;
     next();
   } catch (err) {
     console.error('[RBAC] Erro ao carregar usuário:', err.message);
@@ -528,7 +610,7 @@ app.get('/api/auth/status', async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT c.id, c.nome, c.email, c.papel, c.time_torcida, c.avatar_url,
-             up.ativo AS pro_ativo
+             up.ativo AS pro_ativo, up.status_assinatura
         FROM contas c
         LEFT JOIN usuarios_premium up ON up.conta_id = c.id
        WHERE c.id = ?
@@ -538,9 +620,17 @@ app.get('/api/auth/status', async (req, res) => {
     req.session.usuario = {
       id: u.id, nome: u.nome, email: u.email,
       role: u.papel, papel: u.papel, time_torcida: u.time_torcida, avatar_url: u.avatar_url,
-      premium: u.pro_ativo == 1 ? 1 : 0
+      premium: u.pro_ativo == 1 ? 1 : 0,
+      status_assinatura: u.status_assinatura || (u.pro_ativo == 1 ? 'active' : 'free')
     };
-    return res.json({ autenticado: true, usuario: { ...req.session.usuario, antecedencia_pro_dias: ANTECEDENCIA_PRO_DIAS } });
+    return res.json({
+      autenticado: true,
+      usuario: {
+        ...req.session.usuario,
+        antecedencia_pro_dias: ANTECEDENCIA_PRO_DIAS,
+        limite_reservas_mes_free: LIMITE_RESERVAS_MES_FREE
+      }
+    });
   } catch {
     return res.json({ autenticado: false });
   }
@@ -551,7 +641,7 @@ app.get('/api/auth/me', async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT c.id, c.nome, c.email, c.papel, c.time_torcida, c.avatar_url,
-             up.ativo AS pro_ativo
+             up.ativo AS pro_ativo, up.status_assinatura
         FROM contas c
         LEFT JOIN usuarios_premium up ON up.conta_id = c.id
        WHERE c.id = ?
@@ -561,10 +651,15 @@ app.get('/api/auth/me', async (req, res) => {
     req.session.usuario = {
       id: u.id, nome: u.nome, email: u.email,
       role: u.papel, papel: u.papel, time_torcida: u.time_torcida, avatar_url: u.avatar_url,
-      premium: u.pro_ativo == 1 ? 1 : 0
+      premium: u.pro_ativo == 1 ? 1 : 0,
+      status_assinatura: u.status_assinatura || (u.pro_ativo == 1 ? 'active' : 'free')
     };
   } catch {}
-  res.json({ ...req.session.usuario, antecedencia_pro_dias: ANTECEDENCIA_PRO_DIAS });
+  res.json({
+    ...req.session.usuario,
+    antecedencia_pro_dias: ANTECEDENCIA_PRO_DIAS,
+    limite_reservas_mes_free: LIMITE_RESERVAS_MES_FREE
+  });
 });
 
 app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
@@ -610,7 +705,7 @@ app.post('/api/auth/change-password', autenticado, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STRIPE — Assinatura Pro
+// STRIPE — Assinatura Pro + Portal do Cliente (Billing Portal)
 // ─────────────────────────────────────────────────────────────────────────────
 app.get('/api/stripe/config', (req, res) => {
   res.json({ publishableKey: STRIPE_PUBLISHABLE_KEY });
@@ -625,9 +720,37 @@ function baseUrlDe(req) {
   return `${req.protocol}://${req.get('host') || 'localhost:8228'}`;
 }
 
+async function obterOuCriarStripeCustomer(usuario) {
+  let customerId = usuario.stripe_customer_id;
+  if (customerId) return customerId;
+
+  if (usuario.email) {
+    try {
+      const existentes = await stripe.customers.list({ email: usuario.email.trim().toLowerCase(), limit: 1 });
+      if (existentes.data.length > 0) customerId = existentes.data[0].id;
+    } catch {}
+  }
+  if (!customerId) {
+    const criado = await stripe.customers.create({
+      email: usuario.email || undefined,
+      name: usuario.nome || undefined,
+      metadata: { usuario_id: String(usuario.id) }
+    });
+    customerId = criado.id;
+  }
+  await pool.query(
+    `INSERT INTO usuarios_premium (conta_id, stripe_customer_id, status_assinatura, ativo)
+     VALUES (?, ?, 'incomplete', 0)
+     ON DUPLICATE KEY UPDATE stripe_customer_id = VALUES(stripe_customer_id)`,
+    [usuario.id, customerId]
+  );
+  return customerId;
+}
+
 app.post('/api/stripe/checkout', autenticado, async (req, res) => {
   try {
     const baseUrl = baseUrlDe(req);
+    const customerId = await obterOuCriarStripeCustomer(req.usuario);
     const line_items = STRIPE_PRICE_ID
       ? [{ price: STRIPE_PRICE_ID, quantity: 1 }]
       : [{
@@ -635,7 +758,7 @@ app.post('/api/stripe/checkout', autenticado, async (req, res) => {
             currency: 'brl',
             product_data: {
               name: "Caravana's Hub Pro",
-              description: `Cupons de desconto, sorteio de brindes e acesso às caravanas ${ANTECEDENCIA_PRO_DIAS} dias antes`
+              description: `Reservas ilimitadas, cupons de desconto, sorteio de brindes e pré-venda ${ANTECEDENCIA_PRO_DIAS} dias antes`
             },
             unit_amount: 1990,
             recurring: { interval: 'month' }
@@ -645,8 +768,8 @@ app.post('/api/stripe/checkout', autenticado, async (req, res) => {
 
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: 'subscription',
+      customer: customerId,
       line_items,
-      customer_email: req.usuario.email || undefined,
       success_url: `${baseUrl}/app.html?pro=sucesso&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:  `${baseUrl}/app.html?pro=cancelado`,
       client_reference_id: String(req.usuario.id),
@@ -657,6 +780,23 @@ app.post('/api/stripe/checkout', autenticado, async (req, res) => {
   } catch (err) {
     console.error('[Stripe] Erro ao criar checkout:', err.message);
     res.status(500).json({ error: `Erro ao iniciar o checkout: ${err.message}` });
+  }
+});
+
+// Portal do Cliente (Stripe Billing Portal) — troca de plano, cartão e cancelamento pelo próprio cliente
+app.post('/api/stripe/portal', autenticado, async (req, res) => {
+  try {
+    const baseUrl = baseUrlDe(req);
+    const customerId = await obterOuCriarStripeCustomer(req.usuario);
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: `${baseUrl}/app.html?pro=portal`
+    });
+    await registrarAuditoria(req.usuario.id, 'portal_cliente_aberto', `Abriu Billing Portal do Stripe (${customerId})`, getClientIp(req));
+    res.json({ url: portalSession.url });
+  } catch (err) {
+    console.error('[Stripe] Erro ao abrir Billing Portal:', err.message);
+    res.status(500).json({ error: `Não foi possível abrir o Portal do Cliente do Stripe: ${err.message}` });
   }
 });
 
@@ -674,7 +814,9 @@ app.get('/api/stripe/verify-session', autenticado, async (req, res) => {
       return res.status(400).json({ error: 'Esta sessão não é de assinatura Pro.' });
     }
     if (sess.status === 'complete') {
-      await ativarPro(req.usuario.id, sess.customer, `checkout ${sess.id}`, getClientIp(req));
+      const custId = typeof sess.customer === 'string' ? sess.customer : sess.customer?.id;
+      const subId = typeof sess.subscription === 'string' ? sess.subscription : sess.subscription?.id;
+      await ativarPro(req.usuario.id, custId, subId, `checkout ${sess.id}`, getClientIp(req));
       return res.json({ success: true, premium: true });
     }
     res.json({ success: false, status: sess.status, payment_status: sess.payment_status });
@@ -695,16 +837,16 @@ app.post('/api/stripe/sincronizar', autenticado, async (req, res) => {
       } catch {}
     }
 
-    let ativa = false;
+    let subAtiva = null;
     if (customerId) {
       try {
         const subs = await stripe.subscriptions.list({ customer: customerId, status: 'active', limit: 1 });
-        ativa = subs.data.length > 0;
+        if (subs.data.length > 0) subAtiva = subs.data[0];
       } catch {}
     }
 
-    if (ativa) {
-      await ativarPro(usuario.id, customerId, 'sincronização manual', getClientIp(req));
+    if (subAtiva) {
+      await ativarPro(usuario.id, customerId, subAtiva.id, 'sincronização manual', getClientIp(req));
       return res.json({ success: true, premium: true, message: 'Assinatura Pro reconhecida e ativa!' });
     }
     res.json({ success: false, premium: false, message: 'Nenhuma assinatura ativa encontrada no Stripe.' });
@@ -732,9 +874,12 @@ app.post('/api/stripe/cancelar', autenticado, async (req, res) => {
       }
     }
 
-    await pool.query('UPDATE usuarios_premium SET ativo = 0 WHERE conta_id = ?', [usuario.id]);
+    await pool.query("UPDATE usuarios_premium SET ativo = 0, status_assinatura = 'canceled' WHERE conta_id = ?", [usuario.id]);
     await pool.query('INSERT IGNORE INTO usuarios_free (conta_id) VALUES (?)', [usuario.id]);
-    if (req.session.usuario) req.session.usuario.premium = 0;
+    if (req.session.usuario) {
+      req.session.usuario.premium = 0;
+      req.session.usuario.status_assinatura = 'canceled';
+    }
     await registrarAuditoria(usuario.id, 'cancelar_pro', `Assinatura Pro cancelada (${canceladas} removidas no Stripe)`, getClientIp(req));
     res.json({ success: true, premium: false, message: 'Assinatura Pro cancelada com sucesso. Sua conta voltou para o plano Free.' });
   } catch (err) {
@@ -1052,7 +1197,13 @@ app.post('/api/caravanas/:id/foto', somenteOrganizador, uploadImage.single('foto
 });
 
 app.get('/api/meta', autenticado, (req, res) => {
-  res.json({ cidades: CIDADES_ALTA_PAULISTA, tipos: TIPOS_EVENTO, antecedencia_pro_dias: ANTECEDENCIA_PRO_DIAS });
+  res.json({
+    cidades: CIDADES_ALTA_PAULISTA,
+    tipos: TIPOS_EVENTO,
+    antecedencia_pro_dias: ANTECEDENCIA_PRO_DIAS,
+    limite_reservas_mes_free: LIMITE_RESERVAS_MES_FREE,
+    preco_pro_mensal: PRECO_PRO_MENSAL
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1061,8 +1212,9 @@ app.get('/api/meta', autenticado, (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 function validarEvento(d) {
   const erros = [];
+  const tipo = d.tipo || MAPA_TIPOS_INV[Number(d.tipo_evento_id)] || '';
   const out = {
-    tipo: d.tipo,
+    tipo,
     nome: String(d.nome || '').trim(),
     local: String(d.local || '').trim(),
     pais: String(d.pais || 'Brasil').trim(),
@@ -1482,8 +1634,20 @@ app.post('/api/reservas', autenticado, async (req, res) => {
     const [[trava]] = await conn.query('SELECT id FROM caravanas WHERE id = ? FOR UPDATE', [caravanaId]);
     const [rows] = trava ? await conn.query(`${SELECT_CARAVANA} WHERE c.id = ?`, [caravanaId]) : [[]];
     const caravana = rows[0];
-    if (!caravana || !visivelPara(caravana, req.usuario)) {
+    if (!caravana) {
       await conn.rollback();
+      return res.status(404).json({ error: 'Caravana não encontrada.' });
+    }
+    if (!visivelPara(caravana, req.usuario)) {
+      await conn.rollback();
+      const agora = agoraSP();
+      if (!req.usuario.pro && caravana.status !== 'cancelada' && aberturaPro(caravana.abertura_vendas_em) <= agora && caravana.abertura_vendas_em > agora) {
+        await registrarAuditoria(req.usuario.id, 'limite_prevenda_pro',
+          `Usuário Free tentou reservar caravana #${caravanaId} em pré-venda exclusiva Pro`, ip);
+        return res.status(403).json({
+          error: `Pré-venda exclusiva Pro: esta caravana abre para o plano Free em ${caravana.abertura_vendas_em.slice(0, 16)}. Assine o Caravana's Hub Pro (R$ 19,90/mês) para reservar ${ANTECEDENCIA_PRO_DIAS} dias antes!`
+        });
+      }
       return res.status(404).json({ error: 'Caravana não encontrada.' });
     }
     if (caravana.status !== 'aberta') {
@@ -1493,6 +1657,26 @@ app.post('/api/reservas', autenticado, async (req, res) => {
     if (caravana.data_saida <= agoraSP()) {
       await conn.rollback();
       return res.status(409).json({ error: 'Essa caravana já saiu.' });
+    }
+
+    // Limite por plano na API: Plano Free limitado a LIMITE_RESERVAS_MES_FREE reservas por mês
+    if (!req.usuario.pro) {
+      const mesAtual = agoraSP().slice(0, 7); // YYYY-MM
+      const [[{ reservasMes }]] = await conn.query(
+        `SELECT COUNT(*) AS reservasMes FROM reservas
+          WHERE (usuario_free_id = ? OR usuario_premium_id = ?)
+            AND status_pagamento <> 'cancelado'
+            AND LEFT(criado_em, 7) = ?`,
+        [req.usuario.id, req.usuario.id, mesAtual]
+      );
+      if (Number(reservasMes) >= LIMITE_RESERVAS_MES_FREE) {
+        await conn.rollback();
+        await registrarAuditoria(req.usuario.id, 'limite_free_atingido',
+          `Usuário Free atingiu o limite mensal de ${LIMITE_RESERVAS_MES_FREE} reservas no mês ${mesAtual} ao tentar reservar caravana #${caravanaId}`, ip);
+        return res.status(403).json({
+          error: `Limite do plano Free atingido: você já possui ${reservasMes} reserva(s) ativa(s) neste mês (limite gratuito: ${LIMITE_RESERVAS_MES_FREE} reservas/mês). Assine o Caravana's Hub Pro (R$ 19,90/mês) para liberar reservas ilimitadas, pré-venda ${ANTECEDENCIA_PRO_DIAS} dias antes e cupons de desconto.`
+        });
+      }
     }
 
     const [[ja]] = await conn.query(
@@ -1725,13 +1909,55 @@ app.get('/api/organizador/caravanas/:id/passageiros', somenteOrganizador, async 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADMIN — papéis, cupons, brindes/sorteios e auditoria
+// ADMIN — métricas SaaS (planos, assinaturas ativas, MRR de teste, logs), papéis, cupons e brindes
 // ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/admin/metricas-saas', somenteAdmin, async (req, res) => {
+  try {
+    const [[resumo]] = await pool.query(`
+      SELECT
+        COUNT(*) AS total_usuarios,
+        SUM(CASE WHEN up.conta_id IS NOT NULL AND up.ativo = 1 THEN 1 ELSE 0 END) AS usuarios_pro,
+        SUM(CASE WHEN up.conta_id IS NULL OR up.ativo = 0 THEN 1 ELSE 0 END) AS usuarios_free,
+        SUM(CASE WHEN up.conta_id IS NOT NULL AND up.ativo = 1 THEN 1 ELSE 0 END) AS assinaturas_ativas,
+        SUM(CASE WHEN up.status_assinatura = 'past_due' THEN 1 ELSE 0 END) AS assinaturas_inadimplentes,
+        SUM(CASE WHEN up.status_assinatura = 'canceled' THEN 1 ELSE 0 END) AS assinaturas_canceladas
+      FROM contas c
+      LEFT JOIN usuarios_premium up ON up.conta_id = c.id
+    `);
+    const assinaturasAtivas = Number(resumo?.assinaturas_ativas || 0);
+    const mrrTeste = arred(assinaturasAtivas * PRECO_PRO_MENSAL);
+
+    let ultimosEventos = [];
+    try {
+      const logRes = await axios.get(`${LOG_SERVICE_URL}/logs?limit=15`, { timeout: 2500 });
+      ultimosEventos = Array.isArray(logRes.data) ? logRes.data : [];
+    } catch {}
+
+    res.json({
+      total_usuarios: Number(resumo?.total_usuarios || 0),
+      usuarios_free: Number(resumo?.usuarios_free || 0),
+      usuarios_pro: Number(resumo?.usuarios_pro || 0),
+      assinaturas_ativas: assinaturasAtivas,
+      assinaturas_inadimplentes: Number(resumo?.assinaturas_inadimplentes || 0),
+      assinaturas_canceladas: Number(resumo?.assinaturas_canceladas || 0),
+      preco_pro_mensal: PRECO_PRO_MENSAL,
+      mrr_teste: mrrTeste,
+      limite_reservas_mes_free: LIMITE_RESERVAS_MES_FREE,
+      ultimos_eventos: ultimosEventos
+    });
+  } catch (err) {
+    console.error('[Admin] Erro ao calcular métricas SaaS:', err.message);
+    res.status(500).json({ error: 'Erro ao calcular métricas SaaS.' });
+  }
+});
+
 app.get('/api/admin/usuarios', somenteAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT c.id, c.nome, c.email, c.papel AS role, c.papel, c.time_torcida,
-             (CASE WHEN up.conta_id IS NOT NULL AND up.ativo = 1 THEN 1 ELSE 0 END) AS premium
+             (CASE WHEN up.conta_id IS NOT NULL AND up.ativo = 1 THEN 1 ELSE 0 END) AS premium,
+             COALESCE(up.status_assinatura, 'free') AS status_assinatura,
+             up.stripe_customer_id, up.stripe_subscription_id
         FROM contas c
         LEFT JOIN usuarios_premium up ON up.conta_id = c.id
        ORDER BY c.id

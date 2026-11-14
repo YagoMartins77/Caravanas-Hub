@@ -155,10 +155,10 @@
           <h3><i class="fas fa-user"></i> Free</h3>
           <div class="price">R$ 0 <small>/ para sempre</small></div>
           <ul>
-            <li><i class="fas fa-check"></i> Cadastro e compra de passagem</li>
-            <li><i class="fas fa-check"></i> Ingresso incluso na passagem</li>
-            <li><i class="fas fa-check"></i> Histórico das suas reservas</li>
-            <li><i class="fas fa-check"></i> Cancelamento antes da saída</li>
+            <li><i class="fas fa-check"></i> Cadastro e compra de passagem (ingresso incluso)</li>
+            <li><i class="fas fa-check"></i> <strong>Limite de até 2 reservas por mês</strong> na API</li>
+            <li><i class="fas fa-check"></i> Compra na abertura geral de vendas</li>
+            <li><i class="fas fa-check"></i> Upload de avatar até 2 MB e cancelamento antes da saída</li>
           </ul>
           <a class="btn btn-ghost" href="auth.html?modo=cadastro">Começar grátis</a>
         </div>
@@ -166,10 +166,10 @@
           <h3><i class="fas fa-crown" style="color:var(--gold)"></i> Pro</h3>
           <div class="price">R$ 19,90 <small>/ mês</small></div>
           <ul>
+            <li><i class="fas fa-infinity"></i> <span><strong>Reservas ilimitadas no mês</strong> (sem trava na API)</span></li>
             <li><i class="fas fa-bolt"></i> <span><strong>Acesso antecipado:</strong> veja e compre a caravana <strong>3 dias antes</strong> do Free</span></li>
             <li><i class="fas fa-percent"></i> <span><strong>Cupons de desconto</strong> exclusivos na viagem</span></li>
-            <li><i class="fas fa-gift"></i> <span>Concorre a <strong>brindes</strong> em toda caravana (camisas, bonés, kits)</span></li>
-            <li><i class="fas fa-check"></i> Tudo o que o Free tem</li>
+            <li><i class="fas fa-gift"></i> <span>Concorre a <strong>brindes</strong> em toda caravana + gestão no <strong>Portal do Cliente Stripe</strong></span></li>
           </ul>
           <a class="btn btn-gold" href="auth.html?modo=cadastro">Quero ser Pro</a>
         </div>
@@ -424,7 +424,7 @@
     // Console Rápido de Ações do Administrador
     function renderConsoleAdminF2(user) {
       f2Container.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:1rem;margin-bottom:1.2rem;flex-wrap:wrap;gap:.8rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:1rem;margin-bottom:1rem;flex-wrap:wrap;gap:.8rem;">
           <div>
             <h2 style="font-size:1.3rem;margin:0;"><i class="fas fa-gauge-high" style="color:var(--green)"></i> Painel Rápido F2</h2>
             <span class="muted small">Conectado como <strong>${esc(user.nome)}</strong> (${esc(user.email)})</span>
@@ -435,6 +435,8 @@
           </div>
         </div>
 
+        <div id="f2MetricasSaaS" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.7rem;margin-bottom:1.1rem;"></div>
+
         <div class="tabs" style="display:flex;gap:.5rem;margin-bottom:1.2rem;overflow-x:auto;">
           <button class="chip active f2-tab" data-f2tab="tab-logs"><i class="fas fa-clock-rotate-left"></i> Auditoria / Logs</button>
           <button class="chip f2-tab" data-f2tab="tab-promover"><i class="fas fa-bolt"></i> 1-Click Pro</button>
@@ -444,6 +446,8 @@
 
         <div id="f2TabContent"></div>
       `;
+
+      carregarMetricasF2();
 
       document.getElementById('btnDeslogarF2').addEventListener('click', async () => {
         await fetch('/api/auth/logout', { method: 'POST' });
@@ -459,6 +463,30 @@
       });
 
       carregarAbaF2('tab-logs');
+    }
+
+    async function carregarMetricasF2() {
+      const box = document.getElementById('f2MetricasSaaS');
+      if (!box) return;
+      try {
+        const res = await fetch('/api/admin/metricas-saas');
+        if (!res.ok) return;
+        const m = await res.json();
+        box.innerHTML = `
+          <div style="background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:.7rem .9rem;">
+            <div class="muted small">Usuários por Plano</div>
+            <div style="font-size:1.1rem;font-weight:800;margin-top:.15rem;">${m.usuarios_free} Free · <span style="color:var(--gold);">${m.usuarios_pro} Pro</span></div>
+          </div>
+          <div style="background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:.7rem .9rem;">
+            <div class="muted small">Assinaturas Ativas</div>
+            <div style="font-size:1.1rem;font-weight:800;color:var(--green);margin-top:.15rem;">${m.assinaturas_ativas} ativas</div>
+          </div>
+          <div style="background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:.7rem .9rem;">
+            <div class="muted small">MRR de Teste</div>
+            <div style="font-size:1.1rem;font-weight:800;color:var(--gold);margin-top:.15rem;">${brl(m.mrr_teste)}/mês</div>
+          </div>
+        `;
+      } catch {}
     }
 
     async function carregarAbaF2(tab) {
@@ -717,6 +745,7 @@
         const res = await fetch(endpoint, { method: 'POST' });
         const d = await res.json();
         if (!res.ok) throw new Error(d.error || 'Erro na operação.');
+        carregarMetricasF2();
         carregarAbaF2('tab-promover');
       } catch (err) {
         alert(err.message);
